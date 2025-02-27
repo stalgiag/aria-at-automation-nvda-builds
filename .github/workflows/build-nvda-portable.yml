@@ -128,11 +128,11 @@ jobs:
             
             # Create a script file that will execute the Python script and output the result
             $scriptPath = "$env:TEMP\run_configure_nvda.ps1"
-            Set-Content -Path $scriptPath -Value @"
-            `$output = python scripts/configure_nvda.py "nvda_installer.exe" "`$PWD\at-automation.nvda-addon" "`$env:NVDA_VERSION"
-            Write-Output `$output
+            $scriptContent = @"
+            $output = python scripts/configure_nvda.py "nvda_installer.exe" "$PWD\at-automation.nvda-addon" "$env:NVDA_VERSION"
+            Write-Output $output
             "@
-            
+            Set-Content -Path $scriptPath -Value $scriptContent
             # Set the execution policy
             Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
             
