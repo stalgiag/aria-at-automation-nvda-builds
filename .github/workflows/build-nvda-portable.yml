@@ -67,14 +67,29 @@ jobs:
       - name: Get NVDA AT Automation Plugin
         id: clone_plugin
         run: |
-          $result = python scripts/clone_nvda_plugin.py | ConvertFrom-Json
-
-          if (-not $result.success) {
-            Write-Error "Failed to get NVDA plugin: $($result.error)"
+          try {
+            # Run the script and capture the output
+            $output = python scripts/clone_nvda_plugin.py
+            
+            # Try to parse the output as JSON
+            try {
+              $result = $output | ConvertFrom-Json
+            } catch {
+              Write-Warning "Failed to parse script output as JSON. Raw output:"
+              Write-Warning $output
+              throw "Failed to parse script output as JSON: $_"
+            }
+            
+            if (-not $result.success) {
+              throw "Failed to get NVDA plugin: $($result.error)"
+            }
+            
+            echo "Plugin downloaded successfully to: $($result.plugin_dir)"
+            echo "PLUGIN_DIR=$($result.plugin_dir)" >> $env:GITHUB_ENV
+          } catch {
+            Write-Error "Error in Get NVDA AT Automation Plugin step: $_"
             exit 1
           }
-
-          echo "Plugin downloaded successfully to: $($result.plugin_dir)"
         shell: pwsh
 
       - name: Create AT Automation Plugin addon
