@@ -122,27 +122,65 @@ jobs:
       - name: Install and configure NVDA
         id: configure_nvda
         run: |
-          $result = python scripts/configure_nvda.py "nvda_installer.exe" "$PWD\at-automation.nvda-addon" "$env:NVDA_VERSION" | ConvertFrom-Json
-
-          if (-not $result.success) {
-            Write-Error "Failed to configure NVDA: $($result.error)"
+          try {
+            # Run the script and capture the output
+            Write-Host "Running configure_nvda.py with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
+            $output = python scripts/configure_nvda.py "nvda_installer.exe" "$PWD\at-automation.nvda-addon" "$env:NVDA_VERSION"
+            
+            # Try to parse the output as JSON
+            try {
+              $result = $output | ConvertFrom-Json
+            } catch {
+              Write-Warning "Failed to parse script output as JSON. Raw output:"
+              Write-Warning $output
+              throw "Failed to parse script output as JSON: $_"
+            }
+            
+            if (-not $result.success) {
+              throw "Failed to configure NVDA: $($result.error)"
+            }
+            
+            echo "NVDA configured successfully"
+            echo "Portable path: $($result.portable_path)"
+            echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
+          } catch {
+            Write-Error "Error in Install and configure NVDA step: $_"
+            
+            # Check if log file exists and display its contents
+            if (Test-Path "configure_nvda.log") {
+              Write-Host "Contents of configure_nvda.log:"
+              Get-Content "configure_nvda.log"
+            }
+            
             exit 1
           }
-
-          echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
         shell: pwsh
 
       - name: Test NVDA portable
         id: test_nvda
         run: |
-          $result = python scripts/test_nvda_portable.py "$env:PORTABLE_PATH" | ConvertFrom-Json
-
-          if (-not $result.success) {
-            Write-Error "NVDA portable test failed"
+          try {
+            # Run the script and capture the output
+            $output = python scripts/test_nvda_portable.py "$env:PORTABLE_PATH"
+            
+            # Try to parse the output as JSON
+            try {
+              $result = $output | ConvertFrom-Json
+            } catch {
+              Write-Warning "Failed to parse script output as JSON. Raw output:"
+              Write-Warning $output
+              throw "Failed to parse script output as JSON: $_"
+            }
+            
+            if (-not $result.success) {
+              throw "NVDA portable test failed"
+            }
+            
+            echo "NVDA portable test passed!"
+          } catch {
+            Write-Error "Error in Test NVDA portable step: $_"
             exit 1
           }
-
-          echo "NVDA portable test passed!"
         shell: pwsh
 
       - name: Package NVDA portable
@@ -151,6 +189,15 @@ jobs:
           Compress-Archive -Path "$env:PORTABLE_PATH\*" -DestinationPath $zipPath
           echo "ZIP_PATH=$zipPath" >> $env:GITHUB_ENV
         shell: pwsh
+
+      - name: Upload log files
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: nvda-logs
+          path: |
+            *.log
+          retention-days: 7
 
       - name: Create Release
         id: create_release
