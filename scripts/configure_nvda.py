@@ -26,24 +26,6 @@ def is_admin():
     except:
         return False
 
-def run_elevated(cmd):
-    """Run a command with elevated privileges using PowerShell."""
-    logging.info(f"Running with elevation: {cmd}")
-    
-    # Create a PowerShell command to run the process with elevation
-    ps_cmd = [
-        "powershell.exe",
-        "-Command",
-        f"Start-Process -FilePath '{cmd[0]}' -ArgumentList '{' '.join(cmd[1:])}' -Wait"
-    ]
-    
-    result = subprocess.run(ps_cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        logging.error(f"Elevated process failed: {result.stderr}")
-        raise Exception(f"Elevated process failed: {result.stderr}")
-    
-    return result
-
 def install_nvda(installer_path):
     """
     Install NVDA silently.
@@ -54,15 +36,10 @@ def install_nvda(installer_path):
     logging.info(f"Installing NVDA from {installer_path}")
     
     try:
-        # Run the installer silently with appropriate privileges
+        # Just run the installer directly - GitHub Actions runners should have sufficient privileges
+        # If this fails, we'll catch the exception and log it
         cmd = [installer_path, "--install", "--silent"]
-        
-        if is_admin():
-            # We already have admin privileges
-            subprocess.run(cmd, check=True)
-        else:
-            # Need to elevate
-            run_elevated(cmd)
+        subprocess.run(cmd, check=True)
         
         logging.info("NVDA installed successfully")
         
@@ -72,7 +49,7 @@ def install_nvda(installer_path):
         
         # Kill NVDA process after installation
         logging.info("Killing NVDA process")
-        os.system('taskkill /f /im nvda.exe')
+        subprocess.run(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
         time.sleep(2)
     except Exception as e:
         logging.error(f"Error installing NVDA: {str(e)}")
@@ -91,19 +68,8 @@ def install_addon(addon_path):
     logging.info(f"Starting NVDA from {nvda_path}")
     
     try:
-        # Start NVDA with appropriate privileges
-        if is_admin():
-            # We already have admin privileges
-            subprocess.Popen([nvda_path])
-        else:
-            # Use PowerShell to start NVDA
-            ps_cmd = [
-                "powershell.exe",
-                "-Command",
-                f"Start-Process -FilePath '{nvda_path}'"
-            ]
-            subprocess.run(ps_cmd)
-        
+        # Start NVDA directly
+        subprocess.Popen([nvda_path])
         time.sleep(10)
         
         # Connect to NVDA
@@ -159,19 +125,8 @@ def configure_nvda_settings():
     logging.info(f"Starting NVDA from {nvda_path}")
     
     try:
-        # Start NVDA with appropriate privileges
-        if is_admin():
-            # We already have admin privileges
-            subprocess.Popen([nvda_path])
-        else:
-            # Use PowerShell to start NVDA
-            ps_cmd = [
-                "powershell.exe",
-                "-Command",
-                f"Start-Process -FilePath '{nvda_path}'"
-            ]
-            subprocess.run(ps_cmd)
-        
+        # Start NVDA directly
+        subprocess.Popen([nvda_path])
         time.sleep(10)
         
         # Connect to NVDA
@@ -238,19 +193,8 @@ def create_portable_copy(version):
     logging.info(f"Starting NVDA from {nvda_path}")
     
     try:
-        # Start NVDA with appropriate privileges
-        if is_admin():
-            # We already have admin privileges
-            subprocess.Popen([nvda_path])
-        else:
-            # Use PowerShell to start NVDA
-            ps_cmd = [
-                "powershell.exe",
-                "-Command",
-                f"Start-Process -FilePath '{nvda_path}'"
-            ]
-            subprocess.run(ps_cmd)
-        
+        # Start NVDA directly
+        subprocess.Popen([nvda_path])
         time.sleep(10)
         
         # Connect to NVDA
@@ -282,7 +226,7 @@ def create_portable_copy(version):
         
         # Kill NVDA
         logging.info("Killing NVDA process")
-        os.system('taskkill /f /im nvda.exe')
+        subprocess.run(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
         time.sleep(2)
         
         logging.info(f"Portable copy created at: {portable_path}")

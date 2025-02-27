@@ -122,42 +122,44 @@ jobs:
       - name: Install and configure NVDA
         id: configure_nvda
         run: |
+          # Create a batch file to run the Python script with elevated privileges
+          $batchPath = "$env:TEMP\run_configure_nvda.bat"
+
+          # Simple batch file content
+          $batchContent = "python scripts/configure_nvda.py ""nvda_installer.exe"" ""$PWD\at-automation.nvda-addon"" ""$env:NVDA_VERSION"" > output.json"
+          Set-Content -Path $batchPath -Value $batchContent
+
+          Write-Host "Running configure_nvda.py with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
+
           try {
-            # Run the script with elevated privileges using PowerShell Start-Process
-            Write-Host "Running configure_nvda.py with elevated privileges"
+            # Run the batch file
+            cmd /c $batchPath
             
-            # Create a script file that will execute the Python script and output the result
-            $scriptPath = "$env:TEMP\run_configure_nvda.ps1"
-            $scriptContent = @"
-            $output = python scripts/configure_nvda.py "nvda_installer.exe" "$PWD\at-automation.nvda-addon" "$env:NVDA_VERSION"
-            Write-Output $output
-            "@
-            Set-Content -Path $scriptPath -Value $scriptContent
-            # Set the execution policy
-            Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-            
-            # Run the script and capture the output
-            $output = & powershell.exe -ExecutionPolicy Bypass -Command "& { . '$scriptPath'; }"
-            
-            Write-Host "Raw output from configure_nvda.py:"
-            Write-Host $output
-            
-            # Try to parse the output as JSON
-            try {
-              $result = $output | ConvertFrom-Json
-            } catch {
-              Write-Warning "Failed to parse script output as JSON. Raw output:"
-              Write-Warning $output
-              throw "Failed to parse script output as JSON: $_"
+            # Read the output file
+            if (Test-Path "output.json") {
+              $output = Get-Content "output.json" -Raw
+              Write-Host "Raw output from configure_nvda.py:"
+              Write-Host $output
+              
+              # Try to parse the output as JSON
+              try {
+                $result = $output | ConvertFrom-Json
+              } catch {
+                Write-Warning "Failed to parse script output as JSON. Raw output:"
+                Write-Warning $output
+                throw "Failed to parse script output as JSON: $_"
+              }
+              
+              if (-not $result.success) {
+                throw "Failed to configure NVDA: $($result.error)"
+              }
+              
+              echo "NVDA configured successfully"
+              echo "Portable path: $($result.portable_path)"
+              echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
+            } else {
+              throw "Output file not created by the script"
             }
-            
-            if (-not $result.success) {
-              throw "Failed to configure NVDA: $($result.error)"
-            }
-            
-            echo "NVDA configured successfully"
-            echo "Portable path: $($result.portable_path)"
-            echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
           } catch {
             Write-Error "Error in Install and configure NVDA step: $_"
             
@@ -175,25 +177,44 @@ jobs:
         id: test_nvda
         run: |
           try {
-            # Run the script and capture the output
-            $output = python scripts/test_nvda_portable.py "$env:PORTABLE_PATH"
+            # Use the same approach as with the configure step
+            $batchPath = "$env:TEMP\run_test_nvda.bat"
+            $batchContent = "python scripts/test_nvda_portable.py ""$env:PORTABLE_PATH"" > test_output.json"
+            Set-Content -Path $batchPath -Value $batchContent
             
-            # Try to parse the output as JSON
-            try {
-              $result = $output | ConvertFrom-Json
-            } catch {
-              Write-Warning "Failed to parse script output as JSON. Raw output:"
-              Write-Warning $output
-              throw "Failed to parse script output as JSON: $_"
+            # Run the batch file
+            cmd /c $batchPath
+            
+            # Read the output file
+            if (Test-Path "test_output.json") {
+              $output = Get-Content "test_output.json" -Raw
+              
+              # Try to parse the output as JSON
+              try {
+                $result = $output | ConvertFrom-Json
+              } catch {
+                Write-Warning "Failed to parse script output as JSON. Raw output:"
+                Write-Warning $output
+                throw "Failed to parse script output as JSON: $_"
+              }
+              
+              if (-not $result.success) {
+                throw "NVDA portable test failed"
+              }
+              
+              echo "NVDA portable test passed!"
+            } else {
+              throw "Test output file not created by the script"
             }
-            
-            if (-not $result.success) {
-              throw "NVDA portable test failed"
-            }
-            
-            echo "NVDA portable test passed!"
           } catch {
             Write-Error "Error in Test NVDA portable step: $_"
+            
+            # Check if log file exists and display its contents
+            if (Test-Path "test_nvda_portable.log") {
+              Write-Host "Contents of test_nvda_portable.log:"
+              Get-Content "test_nvda_portable.log"
+            }
+            
             exit 1
           }
         shell: pwsh
@@ -212,6 +233,7 @@ jobs:
           name: nvda-logs
           path: |
             *.log
+            *.json
           retention-days: 7
 
       - name: Create Release
