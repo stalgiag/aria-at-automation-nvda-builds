@@ -123,10 +123,11 @@ jobs:
         id: configure_nvda
         run: |
           try {
-            # Run the PowerShell wrapper script
+            # Run the PowerShell wrapper script directly
             Write-Host "Running configure_nvda_wrapper.ps1 with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
             
-            $output = & powershell -ExecutionPolicy Bypass -File scripts\configure_nvda_wrapper.ps1 -InstallerPath "nvda_installer.exe" -AddonPath "$PWD\at-automation.nvda-addon" -Version "$env:NVDA_VERSION"
+            # Execute the script directly
+            $output = & "scripts\configure_nvda_wrapper.ps1" -InstallerPath "nvda_installer.exe" -AddonPath "$PWD\at-automation.nvda-addon" -Version "$env:NVDA_VERSION"
             
             Write-Host "Output from configure_nvda_wrapper.ps1:"
             Write-Host $output
@@ -167,10 +168,11 @@ jobs:
         id: test_nvda
         run: |
           try {
-            # Run the PowerShell wrapper script
+            # Run the PowerShell wrapper script directly
             Write-Host "Running test_nvda_wrapper.ps1 with arguments: '$env:PORTABLE_PATH'"
             
-            $output = & powershell -ExecutionPolicy Bypass -File scripts\test_nvda_wrapper.ps1 -PortablePath "$env:PORTABLE_PATH"
+            # Execute the script directly
+            $output = & "scripts\test_nvda_wrapper.ps1" -PortablePath "$env:PORTABLE_PATH"
             
             Write-Host "Output from test_nvda_wrapper.ps1:"
             Write-Host $output

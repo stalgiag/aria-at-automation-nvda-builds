@@ -29,7 +29,14 @@ try {
     
     # Start NVDA portable in minimal mode
     Write-Log "Starting NVDA in minimal mode"
-    Start-Process -FilePath $nvdaExe -ArgumentList "-m" -NoNewWindow
+    try {
+        Start-Process -FilePath $nvdaExe -ArgumentList "-m" -NoNewWindow
+        Write-Log "NVDA process started"
+    }
+    catch {
+        Write-Log "Error starting NVDA process: $_"
+        throw "Failed to start NVDA: $_"
+    }
     
     # Wait for NVDA to start
     Write-Log "Waiting for NVDA to start (15 seconds)"
@@ -37,6 +44,8 @@ try {
     
     # Test if AT Automation server is running on port 8765
     Write-Log "Testing connection to AT Automation server on port 8765"
+    $success = $false
+    
     try {
         $tcpClient = New-Object System.Net.Sockets.TcpClient
         $portOpen = $tcpClient.ConnectAsync("127.0.0.1", 8765).Wait(5000)
@@ -53,11 +62,12 @@ try {
         Write-Log "Error testing connection: $_"
         $success = $false
     }
-    
-    # Kill NVDA
-    Write-Log "Killing NVDA process"
-    Stop-Process -Name "nvda" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    finally {
+        # Always kill NVDA
+        Write-Log "Killing NVDA process"
+        Stop-Process -Name "nvda" -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
     
     # Return the result
     if ($success) {

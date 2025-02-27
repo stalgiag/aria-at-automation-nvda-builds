@@ -24,23 +24,34 @@ Write-Log "- Version: $Version"
 
 function Run-Script {
     param(
-        [string]$Script,
-        [string]$Arguments
+        [string]$ScriptPath,
+        [hashtable]$Parameters
     )
     
-    Write-Log "Running script: $Script $Arguments"
-    $output = & $Script $Arguments
+    Write-Log "Running script: $ScriptPath with parameters: $($Parameters | ConvertTo-Json -Compress)"
     
     try {
-        $result = $output | ConvertFrom-Json
-        return $result
+        # Execute the script directly with parameters
+        $output = & $ScriptPath @Parameters
+        
+        try {
+            $result = $output | ConvertFrom-Json
+            return $result
+        }
+        catch {
+            Write-Log "Failed to parse output as JSON: $_"
+            Write-Log "Raw output: $output"
+            return @{
+                "success" = $false
+                "error" = "Failed to parse script output"
+            }
+        }
     }
     catch {
-        Write-Log "Failed to parse output as JSON: $_"
-        Write-Log "Raw output: $output"
+        Write-Log "Error executing script: $_"
         return @{
             "success" = $false
-            "error" = "Failed to parse script output"
+            "error" = $_.Exception.Message
         }
     }
 }
@@ -48,7 +59,10 @@ function Run-Script {
 try {
     # Step 1: Install NVDA
     Write-Log "Step 1: Installing NVDA"
-    $installResult = Run-Script -Script "powershell" -Arguments "-ExecutionPolicy Bypass -File scripts\install_nvda.ps1 -InstallerPath '$InstallerPath'"
+    $installParams = @{
+        InstallerPath = $InstallerPath
+    }
+    $installResult = Run-Script -ScriptPath "$PSScriptRoot\install_nvda.ps1" -Parameters $installParams
     
     if (-not $installResult.success) {
         throw "NVDA installation failed: $($installResult.error)"
@@ -58,7 +72,10 @@ try {
     
     # Step 2: Install addon
     Write-Log "Step 2: Installing addon"
-    $addonResult = Run-Script -Script "powershell" -Arguments "-ExecutionPolicy Bypass -File scripts\install_addon.ps1 -AddonPath '$AddonPath'"
+    $addonParams = @{
+        AddonPath = $AddonPath
+    }
+    $addonResult = Run-Script -ScriptPath "$PSScriptRoot\install_addon.ps1" -Parameters $addonParams
     
     if (-not $addonResult.success) {
         throw "Addon installation failed: $($addonResult.error)"
@@ -68,7 +85,10 @@ try {
     
     # Step 3: Create portable copy
     Write-Log "Step 3: Creating portable copy"
-    $portableResult = Run-Script -Script "powershell" -Arguments "-ExecutionPolicy Bypass -File scripts\create_portable_nvda.ps1 -Version '$Version'"
+    $portableParams = @{
+        Version = $Version
+    }
+    $portableResult = Run-Script -ScriptPath "$PSScriptRoot\create_portable_nvda.ps1" -Parameters $portableParams
     
     if (-not $portableResult.success) {
         throw "Creating portable copy failed: $($portableResult.error)"
