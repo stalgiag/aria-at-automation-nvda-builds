@@ -26,28 +26,41 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 pywinauto
 
-      - name: Get latest NVDA version
+      - name: Get NVDA download URL
         id: nvda_info
         run: |
-          $nvda_info = python scripts/get_latest_nvda.py | ConvertFrom-Json
-          if ($nvda_info.error) {
-            Write-Error $nvda_info.error
-            exit 1
-          }
-
           $version = "${{ github.event.inputs.nvda_version }}"
+
           if ([string]::IsNullOrEmpty($version)) {
-            $version = $nvda_info.version
+            # Get the latest version
+            $nvda_info = python scripts/get_latest_nvda.py | ConvertFrom-Json
+          } else {
+            # Use the specified version
+            $nvda_info = python scripts/get_latest_nvda.py "$version" | ConvertFrom-Json
           }
 
-          echo "NVDA_VERSION=$version" >> $env:GITHUB_ENV
+          echo "NVDA_VERSION=$($nvda_info.version)" >> $env:GITHUB_ENV
           echo "NVDA_DOWNLOAD_URL=$($nvda_info.url)" >> $env:GITHUB_ENV
-          echo "NVDA version: $version"
+          echo "NVDA version: $($nvda_info.version)"
+          echo "NVDA download URL: $($nvda_info.url)"
         shell: pwsh
 
       - name: Download NVDA installer
         run: |
-          Invoke-WebRequest -Uri $env:NVDA_DOWNLOAD_URL -OutFile nvda_installer.exe
+          try {
+            Write-Host "Downloading from: $env:NVDA_DOWNLOAD_URL"
+            Invoke-WebRequest -Uri $env:NVDA_DOWNLOAD_URL -OutFile nvda_installer.exe -ErrorAction Stop
+            
+            # Verify the file was downloaded and has content
+            if (-not (Test-Path nvda_installer.exe) -or (Get-Item nvda_installer.exe).Length -eq 0) {
+              throw "Downloaded file is empty or does not exist"
+            }
+            
+            Write-Host "NVDA installer downloaded successfully: $((Get-Item nvda_installer.exe).Length) bytes"
+          } catch {
+            Write-Error "Failed to download NVDA installer from $env:NVDA_DOWNLOAD_URL. Error: $_"
+            exit 1
+          }
         shell: pwsh
 
       - name: Clone NVDA AT Automation Plugin
