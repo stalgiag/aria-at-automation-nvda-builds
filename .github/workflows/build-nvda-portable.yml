@@ -123,9 +123,24 @@ jobs:
         id: configure_nvda
         run: |
           try {
+            # Run the script with elevated privileges using PowerShell Start-Process
+            Write-Host "Running configure_nvda.py with elevated privileges"
+            
+            # Create a script file that will execute the Python script and output the result
+            $scriptPath = "$env:TEMP\run_configure_nvda.ps1"
+            Set-Content -Path $scriptPath -Value @"
+            `$output = python scripts/configure_nvda.py "nvda_installer.exe" "`$PWD\at-automation.nvda-addon" "`$env:NVDA_VERSION"
+            Write-Output `$output
+            "@
+            
+            # Set the execution policy
+            Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+            
             # Run the script and capture the output
-            Write-Host "Running configure_nvda.py with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
-            $output = python scripts/configure_nvda.py "nvda_installer.exe" "$PWD\at-automation.nvda-addon" "$env:NVDA_VERSION"
+            $output = & powershell.exe -ExecutionPolicy Bypass -Command "& { . '$scriptPath'; }"
+            
+            Write-Host "Raw output from configure_nvda.py:"
+            Write-Host $output
             
             # Try to parse the output as JSON
             try {
