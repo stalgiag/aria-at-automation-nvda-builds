@@ -10,6 +10,7 @@ import subprocess
 import json
 import logging
 from pywinauto.application import Application
+import ctypes
 
 # Set up logging to a file instead of stdout
 logging.basicConfig(
@@ -17,6 +18,31 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+def is_admin():
+    """Check if the script is running with admin privileges."""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def run_elevated(cmd):
+    """Run a command with elevated privileges using PowerShell."""
+    logging.info(f"Running with elevation: {cmd}")
+    
+    # Create a PowerShell command to run the process with elevation
+    ps_cmd = [
+        "powershell.exe",
+        "-Command",
+        f"Start-Process -FilePath '{cmd[0]}' -ArgumentList '{' '.join(cmd[1:])}' -Wait"
+    ]
+    
+    result = subprocess.run(ps_cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logging.error(f"Elevated process failed: {result.stderr}")
+        raise Exception(f"Elevated process failed: {result.stderr}")
+    
+    return result
 
 def install_nvda(installer_path):
     """
@@ -26,18 +52,31 @@ def install_nvda(installer_path):
         installer_path (str): Path to the NVDA installer.
     """
     logging.info(f"Installing NVDA from {installer_path}")
-    # Run the installer silently
-    subprocess.run([installer_path, "--install", "--silent"], check=True)
-    logging.info("NVDA installed successfully")
     
-    # Wait for NVDA to start
-    logging.info("Waiting for NVDA to start")
-    time.sleep(10)
-    
-    # Kill NVDA process after installation
-    logging.info("Killing NVDA process")
-    os.system('taskkill /f /im nvda.exe')
-    time.sleep(2)
+    try:
+        # Run the installer silently with appropriate privileges
+        cmd = [installer_path, "--install", "--silent"]
+        
+        if is_admin():
+            # We already have admin privileges
+            subprocess.run(cmd, check=True)
+        else:
+            # Need to elevate
+            run_elevated(cmd)
+        
+        logging.info("NVDA installed successfully")
+        
+        # Wait for NVDA to start
+        logging.info("Waiting for NVDA to start")
+        time.sleep(10)
+        
+        # Kill NVDA process after installation
+        logging.info("Killing NVDA process")
+        os.system('taskkill /f /im nvda.exe')
+        time.sleep(2)
+    except Exception as e:
+        logging.error(f"Error installing NVDA: {str(e)}")
+        raise
 
 def install_addon(addon_path):
     """
@@ -50,10 +89,23 @@ def install_addon(addon_path):
     # Start NVDA
     nvda_path = os.path.join(os.environ['ProgramFiles(x86)'], 'NVDA', 'nvda.exe')
     logging.info(f"Starting NVDA from {nvda_path}")
-    subprocess.Popen([nvda_path])
-    time.sleep(10)
     
     try:
+        # Start NVDA with appropriate privileges
+        if is_admin():
+            # We already have admin privileges
+            subprocess.Popen([nvda_path])
+        else:
+            # Use PowerShell to start NVDA
+            ps_cmd = [
+                "powershell.exe",
+                "-Command",
+                f"Start-Process -FilePath '{nvda_path}'"
+            ]
+            subprocess.run(ps_cmd)
+        
+        time.sleep(10)
+        
         # Connect to NVDA
         logging.info("Connecting to NVDA")
         app = Application(backend="uia").connect(path="nvda.exe")
@@ -105,10 +157,23 @@ def configure_nvda_settings():
     # Start NVDA
     nvda_path = os.path.join(os.environ['ProgramFiles(x86)'], 'NVDA', 'nvda.exe')
     logging.info(f"Starting NVDA from {nvda_path}")
-    subprocess.Popen([nvda_path])
-    time.sleep(10)
     
     try:
+        # Start NVDA with appropriate privileges
+        if is_admin():
+            # We already have admin privileges
+            subprocess.Popen([nvda_path])
+        else:
+            # Use PowerShell to start NVDA
+            ps_cmd = [
+                "powershell.exe",
+                "-Command",
+                f"Start-Process -FilePath '{nvda_path}'"
+            ]
+            subprocess.run(ps_cmd)
+        
+        time.sleep(10)
+        
         # Connect to NVDA
         logging.info("Connecting to NVDA")
         app = Application(backend="uia").connect(path="nvda.exe")
@@ -171,10 +236,23 @@ def create_portable_copy(version):
     # Start NVDA
     nvda_path = os.path.join(os.environ['ProgramFiles(x86)'], 'NVDA', 'nvda.exe')
     logging.info(f"Starting NVDA from {nvda_path}")
-    subprocess.Popen([nvda_path])
-    time.sleep(10)
     
     try:
+        # Start NVDA with appropriate privileges
+        if is_admin():
+            # We already have admin privileges
+            subprocess.Popen([nvda_path])
+        else:
+            # Use PowerShell to start NVDA
+            ps_cmd = [
+                "powershell.exe",
+                "-Command",
+                f"Start-Process -FilePath '{nvda_path}'"
+            ]
+            subprocess.run(ps_cmd)
+        
+        time.sleep(10)
+        
         # Connect to NVDA
         logging.info("Connecting to NVDA")
         app = Application(backend="uia").connect(path="nvda.exe")
@@ -226,6 +304,11 @@ if __name__ == "__main__":
     
     try:
         logging.info(f"Starting configuration with installer={installer_path}, addon={addon_path}, version={version}")
+        
+        # Check if we're running as admin
+        admin_status = "admin" if is_admin() else "non-admin"
+        logging.info(f"Running with {admin_status} privileges")
+        
         install_nvda(installer_path)
         install_addon(addon_path)
         configure_nvda_settings()
