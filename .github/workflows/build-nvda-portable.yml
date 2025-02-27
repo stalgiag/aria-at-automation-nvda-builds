@@ -1,0 +1,136 @@
+name: Build NVDA Portable with AT Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      nvda_version:
+        description: "NVDA version to package (leave empty for latest)"
+        required: false
+        default: ""
+
+jobs:
+  build-nvda-portable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pywinauto
+
+      - name: Get latest NVDA version
+        id: nvda_info
+        run: |
+          $nvda_info = python scripts/get_latest_nvda.py | ConvertFrom-Json
+          if ($nvda_info.error) {
+            Write-Error $nvda_info.error
+            exit 1
+          }
+
+          $version = "${{ github.event.inputs.nvda_version }}"
+          if ([string]::IsNullOrEmpty($version)) {
+            $version = $nvda_info.version
+          }
+
+          echo "NVDA_VERSION=$version" >> $env:GITHUB_ENV
+          echo "NVDA_DOWNLOAD_URL=$($nvda_info.url)" >> $env:GITHUB_ENV
+          echo "NVDA version: $version"
+        shell: pwsh
+
+      - name: Download NVDA installer
+        run: |
+          Invoke-WebRequest -Uri $env:NVDA_DOWNLOAD_URL -OutFile nvda_installer.exe
+        shell: pwsh
+
+      - name: Clone NVDA AT Automation Plugin
+        id: clone_plugin
+        run: |
+          $result = python scripts/clone_nvda_plugin.py | ConvertFrom-Json
+
+          if (-not $result.success) {
+            Write-Error "Failed to clone NVDA plugin: $($result.error)"
+            exit 1
+          }
+
+          echo "Plugin cloned successfully to: $($result.plugin_dir)"
+        shell: pwsh
+
+      - name: Create AT Automation Plugin addon
+        run: |
+          # Navigate to the NVDAPlugin directory
+          cd NVDAPlugin
+
+          # Create a temporary directory for the addon
+          mkdir -p ../temp_addon
+
+          # Copy all files to the temporary directory
+          Get-ChildItem -Recurse | Where-Object { !$_.PSIsContainer } | ForEach-Object {
+            $targetPath = $_.FullName.Replace($PWD.Path, "../temp_addon")
+            $targetDir = Split-Path -Parent $targetPath
+            if (!(Test-Path $targetDir)) {
+              New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+            }
+            Copy-Item $_.FullName -Destination $targetPath
+          }
+
+          # Create the addon zip file
+          cd ../temp_addon
+          Compress-Archive -Path * -DestinationPath ../at-automation.zip
+          cd ..
+
+          # Rename to .nvda-addon
+          Move-Item -Path at-automation.zip -Destination at-automation.nvda-addon
+        shell: pwsh
+
+      - name: Install and configure NVDA
+        id: configure_nvda
+        run: |
+          $result = python scripts/configure_nvda.py "nvda_installer.exe" "$PWD\at-automation.nvda-addon" "$env:NVDA_VERSION" | ConvertFrom-Json
+
+          if (-not $result.success) {
+            Write-Error "Failed to configure NVDA: $($result.error)"
+            exit 1
+          }
+
+          echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Test NVDA portable
+        id: test_nvda
+        run: |
+          $result = python scripts/test_nvda_portable.py "$env:PORTABLE_PATH" | ConvertFrom-Json
+
+          if (-not $result.success) {
+            Write-Error "NVDA portable test failed"
+            exit 1
+          }
+
+          echo "NVDA portable test passed!"
+        shell: pwsh
+
+      - name: Package NVDA portable
+        run: |
+          $zipPath = "nvda_$env:NVDA_VERSION-at-automation.zip"
+          Compress-Archive -Path "$env:PORTABLE_PATH\*" -DestinationPath $zipPath
+          echo "ZIP_PATH=$zipPath" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nvda-${{ env.NVDA_VERSION }}
+          name: NVDA ${{ env.NVDA_VERSION }} with AT Automation
+          files: ${{ env.ZIP_PATH }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
