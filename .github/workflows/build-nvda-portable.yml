@@ -154,7 +154,7 @@ jobs:
             $logFiles = @("configure_nvda_wrapper.log", "install_nvda.log", "install_addon.log", "create_portable_nvda.log")
             foreach ($logFile in $logFiles) {
               if (Test-Path $logFile) {
-                Write-Host "Contents of $logFile:"
+                Write-Host "Contents of $($logFile):"
                 Get-Content $logFile
               }
             }
@@ -194,7 +194,8 @@ jobs:
             
             # Check if log file exists and display its contents
             if (Test-Path "test_nvda_wrapper.log") {
-              Write-Host "Contents of test_nvda_wrapper.log:"
+              $logFileName = "test_nvda_wrapper.log"
+              Write-Host "Contents of $logFileName:"
               Get-Content "test_nvda_wrapper.log"
             }
             
