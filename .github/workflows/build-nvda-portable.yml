@@ -122,51 +122,41 @@ jobs:
       - name: Install and configure NVDA
         id: configure_nvda
         run: |
-          # Create a batch file to run the Python script with elevated privileges
-          $batchPath = "$env:TEMP\run_configure_nvda.bat"
-
-          # Simple batch file content
-          $batchContent = "python scripts/configure_nvda.py ""nvda_installer.exe"" ""$PWD\at-automation.nvda-addon"" ""$env:NVDA_VERSION"" > output.json"
-          Set-Content -Path $batchPath -Value $batchContent
-
-          Write-Host "Running configure_nvda.py with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
-
           try {
-            # Run the batch file
-            cmd /c $batchPath
+            # Run the PowerShell wrapper script
+            Write-Host "Running configure_nvda_wrapper.ps1 with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
             
-            # Read the output file
-            if (Test-Path "output.json") {
-              $output = Get-Content "output.json" -Raw
-              Write-Host "Raw output from configure_nvda.py:"
-              Write-Host $output
-              
-              # Try to parse the output as JSON
-              try {
-                $result = $output | ConvertFrom-Json
-              } catch {
-                Write-Warning "Failed to parse script output as JSON. Raw output:"
-                Write-Warning $output
-                throw "Failed to parse script output as JSON: $_"
-              }
-              
-              if (-not $result.success) {
-                throw "Failed to configure NVDA: $($result.error)"
-              }
-              
-              echo "NVDA configured successfully"
-              echo "Portable path: $($result.portable_path)"
-              echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
-            } else {
-              throw "Output file not created by the script"
+            $output = & powershell -ExecutionPolicy Bypass -File scripts\configure_nvda_wrapper.ps1 -InstallerPath "nvda_installer.exe" -AddonPath "$PWD\at-automation.nvda-addon" -Version "$env:NVDA_VERSION"
+            
+            Write-Host "Output from configure_nvda_wrapper.ps1:"
+            Write-Host $output
+            
+            # Parse the JSON output
+            try {
+              $result = $output | ConvertFrom-Json
+            } catch {
+              Write-Warning "Failed to parse script output as JSON:"
+              Write-Warning $output
+              throw "Failed to parse script output as JSON: $_"
             }
+            
+            if (-not $result.success) {
+              throw "Failed to configure NVDA: $($result.error)"
+            }
+            
+            Write-Host "NVDA configured successfully"
+            Write-Host "Portable path: $($result.portable_path)"
+            echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
           } catch {
             Write-Error "Error in Install and configure NVDA step: $_"
             
-            # Check if log file exists and display its contents
-            if (Test-Path "configure_nvda.log") {
-              Write-Host "Contents of configure_nvda.log:"
-              Get-Content "configure_nvda.log"
+            # Check if log files exist and display their contents
+            $logFiles = @("configure_nvda_wrapper.log", "install_nvda.log", "install_addon.log", "create_portable_nvda.log")
+            foreach ($logFile in $logFiles) {
+              if (Test-Path $logFile) {
+                Write-Host "Contents of $logFile:"
+                Get-Content $logFile
+              }
             }
             
             exit 1
@@ -177,42 +167,35 @@ jobs:
         id: test_nvda
         run: |
           try {
-            # Use the same approach as with the configure step
-            $batchPath = "$env:TEMP\run_test_nvda.bat"
-            $batchContent = "python scripts/test_nvda_portable.py ""$env:PORTABLE_PATH"" > test_output.json"
-            Set-Content -Path $batchPath -Value $batchContent
+            # Run the PowerShell wrapper script
+            Write-Host "Running test_nvda_wrapper.ps1 with arguments: '$env:PORTABLE_PATH'"
             
-            # Run the batch file
-            cmd /c $batchPath
+            $output = & powershell -ExecutionPolicy Bypass -File scripts\test_nvda_wrapper.ps1 -PortablePath "$env:PORTABLE_PATH"
             
-            # Read the output file
-            if (Test-Path "test_output.json") {
-              $output = Get-Content "test_output.json" -Raw
-              
-              # Try to parse the output as JSON
-              try {
-                $result = $output | ConvertFrom-Json
-              } catch {
-                Write-Warning "Failed to parse script output as JSON. Raw output:"
-                Write-Warning $output
-                throw "Failed to parse script output as JSON: $_"
-              }
-              
-              if (-not $result.success) {
-                throw "NVDA portable test failed"
-              }
-              
-              echo "NVDA portable test passed!"
-            } else {
-              throw "Test output file not created by the script"
+            Write-Host "Output from test_nvda_wrapper.ps1:"
+            Write-Host $output
+            
+            # Parse the JSON output
+            try {
+              $result = $output | ConvertFrom-Json
+            } catch {
+              Write-Warning "Failed to parse script output as JSON:"
+              Write-Warning $output
+              throw "Failed to parse script output as JSON: $_"
             }
+            
+            if (-not $result.success) {
+              throw "NVDA portable test failed: $($result.error)"
+            }
+            
+            Write-Host "NVDA portable test passed!"
           } catch {
             Write-Error "Error in Test NVDA portable step: $_"
             
             # Check if log file exists and display its contents
-            if (Test-Path "test_nvda_portable.log") {
-              Write-Host "Contents of test_nvda_portable.log:"
-              Get-Content "test_nvda_portable.log"
+            if (Test-Path "test_nvda_wrapper.log") {
+              Write-Host "Contents of test_nvda_wrapper.log:"
+              Get-Content "test_nvda_wrapper.log"
             }
             
             exit 1

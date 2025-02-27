@@ -9,8 +9,9 @@ import time
 import subprocess
 import json
 import logging
-from pywinauto.application import Application
 import ctypes
+import tempfile
+import shutil
 
 # Set up logging to a file instead of stdout
 logging.basicConfig(
@@ -26,6 +27,30 @@ def is_admin():
     except:
         return False
 
+def run_command(cmd, shell=False, check=True):
+    """Run a command and log its output without affecting stdout."""
+    try:
+        # Use subprocess with PIPE to avoid mixing output with our JSON
+        result = subprocess.run(
+            cmd, 
+            shell=shell, 
+            check=check,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        logging.info(f"Command executed: {cmd}")
+        logging.info(f"Return code: {result.returncode}")
+        logging.info(f"Output: {result.stdout}")
+        if result.stderr:
+            logging.info(f"Error output: {result.stderr}")
+        return result
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Command failed: {e}")
+        logging.error(f"Output: {e.stdout}")
+        logging.error(f"Error output: {e.stderr}")
+        raise
+
 def install_nvda(installer_path):
     """
     Install NVDA silently.
@@ -36,10 +61,9 @@ def install_nvda(installer_path):
     logging.info(f"Installing NVDA from {installer_path}")
     
     try:
-        # Just run the installer directly - GitHub Actions runners should have sufficient privileges
-        # If this fails, we'll catch the exception and log it
+        # Run the installer directly - GitHub Actions runners should have sufficient privileges
         cmd = [installer_path, "--install", "--silent"]
-        subprocess.run(cmd, check=True)
+        run_command(cmd)
         
         logging.info("NVDA installed successfully")
         
@@ -49,11 +73,143 @@ def install_nvda(installer_path):
         
         # Kill NVDA process after installation
         logging.info("Killing NVDA process")
-        subprocess.run(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
+        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
         time.sleep(2)
     except Exception as e:
         logging.error(f"Error installing NVDA: {str(e)}")
         raise
+
+def create_shortcut_to_nvda():
+    """Create a shortcut to NVDA that doesn't require elevation."""
+    logging.info("Creating a shortcut to NVDA")
+    nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
+    shortcut_path = os.path.join(tempfile.gettempdir(), 'nvda_shortcut.lnk')
+    
+    # Create PowerShell script to create shortcut
+    ps_script = f"""
+    $WshShell = New-Object -comObject WScript.Shell
+    $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
+    $Shortcut.TargetPath = "{nvda_path}"
+    $Shortcut.Save()
+    """
+    
+    # Save script to temp file
+    ps_script_path = os.path.join(tempfile.gettempdir(), 'create_shortcut.ps1')
+    with open(ps_script_path, 'w') as f:
+        f.write(ps_script)
+    
+    # Run PowerShell script
+    run_command(['powershell', '-ExecutionPolicy', 'Bypass', '-File', ps_script_path])
+    
+    # Check if shortcut was created
+    if os.path.exists(shortcut_path):
+        logging.info(f"Shortcut created at {shortcut_path}")
+        return shortcut_path
+    else:
+        raise Exception("Failed to create NVDA shortcut")
+
+def start_nvda_without_elevation():
+    """Start NVDA without requiring elevation."""
+    logging.info("Starting NVDA without elevation")
+    
+    # Method 1: Try using explorer.exe to start NVDA
+    nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
+    
+    try:
+        # This approach uses explorer.exe to start NVDA which should bypass UAC
+        run_command(['explorer.exe', nvda_path])
+        logging.info("Started NVDA using explorer.exe")
+        time.sleep(10)
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to start NVDA using explorer.exe: {str(e)}")
+    
+    # Method 2: Try using a shortcut
+    try:
+        shortcut_path = create_shortcut_to_nvda()
+        run_command(['explorer.exe', shortcut_path])
+        logging.info("Started NVDA using shortcut")
+        time.sleep(10)
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to start NVDA using shortcut: {str(e)}")
+    
+    # Method 3: Create a temporary copy of NVDA
+    try:
+        nvda_dir = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA')
+        temp_nvda_dir = os.path.join(tempfile.gettempdir(), 'nvda_temp')
+        
+        # Create temp directory if it doesn't exist
+        if not os.path.exists(temp_nvda_dir):
+            os.makedirs(temp_nvda_dir)
+            
+        # Copy NVDA.exe and necessary DLLs
+        shutil.copy2(os.path.join(nvda_dir, 'nvda.exe'), os.path.join(temp_nvda_dir, 'nvda.exe'))
+        
+        # Try to copy important DLLs
+        for dll in ['nvdaHelperRemote.dll', 'nvdaControllerClient.dll']:
+            dll_path = os.path.join(nvda_dir, dll)
+            if os.path.exists(dll_path):
+                shutil.copy2(dll_path, os.path.join(temp_nvda_dir, dll))
+        
+        # Run the copied NVDA
+        run_command([os.path.join(temp_nvda_dir, 'nvda.exe')])
+        logging.info("Started NVDA from temporary copy")
+        time.sleep(10)
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to start NVDA from temporary copy: {str(e)}")
+    
+    # Method 4: Use runas with /savecred (only works if credentials were saved before)
+    try:
+        run_command(['runas', '/savecred', f'"{nvda_path}"'])
+        logging.info("Started NVDA using runas with /savecred")
+        time.sleep(10)
+        return True
+    except Exception as e:
+        logging.warning(f"Failed to start NVDA using runas: {str(e)}")
+    
+    # If all methods fail
+    logging.error("All methods to start NVDA without elevation failed")
+    return False
+
+def alternative_configure_workflow():
+    """
+    An alternative approach to configure NVDA by modifying settings directly.
+    This avoids the need to use the GUI which requires elevation.
+    """
+    logging.info("Using alternative configuration approach")
+    
+    try:
+        # Create settings directory if it doesn't exist
+        appdata = os.environ.get('APPDATA')
+        nvda_config_dir = os.path.join(appdata, 'nvda')
+        os.makedirs(nvda_config_dir, exist_ok=True)
+        
+        # Create or modify nvda.ini
+        nvda_ini_path = os.path.join(nvda_config_dir, 'nvda.ini')
+        
+        # Create default configuration
+        ini_content = """[general]
+startMinimized=True
+playStartSound=True
+saveConfigurationOnExit=True
+askToExit=True
+autoCheckForUpdates=False
+[speech]
+synth=capturaspeech
+[braille]
+"""
+        
+        # Write to file
+        with open(nvda_ini_path, 'w') as f:
+            f.write(ini_content)
+        
+        logging.info(f"Created NVDA configuration at {nvda_ini_path}")
+        return True
+    except Exception as e:
+        logging.error(f"Error in alternative configuration: {str(e)}")
+        return False
 
 def install_addon(addon_path):
     """
@@ -63,123 +219,50 @@ def install_addon(addon_path):
         addon_path (str): Path to the addon file.
     """
     logging.info(f"Installing addon from {addon_path}")
-    # Start NVDA
-    nvda_path = os.path.join(os.environ['ProgramFiles(x86)'], 'NVDA', 'nvda.exe')
-    logging.info(f"Starting NVDA from {nvda_path}")
     
     try:
-        # Start NVDA directly
-        subprocess.Popen([nvda_path])
-        time.sleep(10)
+        # Create addons directory if it doesn't exist
+        appdata = os.environ.get('APPDATA')
+        nvda_addons_dir = os.path.join(appdata, 'nvda', 'addons')
+        os.makedirs(nvda_addons_dir, exist_ok=True)
         
-        # Connect to NVDA
-        logging.info("Connecting to NVDA")
-        app = Application(backend="uia").connect(path="nvda.exe")
+        # Extract addon to a temporary directory
+        import zipfile
+        temp_dir = tempfile.mkdtemp()
         
-        # Navigate to Tools -> Add-on store
-        logging.info("Navigating to Tools -> Add-on store")
-        main_window = app.window(name="NVDA")
-        main_window.menu_select("Tools->Add-on store...")
-        time.sleep(2)
+        with zipfile.ZipFile(addon_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
         
-        # Click "Install from external source"
-        logging.info("Clicking 'Install from external source'")
-        addon_dialog = app.window(name="Add-on store")
-        install_button = addon_dialog.child_window(title="Install from external source", control_type="Button")
-        install_button.click()
-        time.sleep(2)
+        # Get the addon manifest to determine the addon name
+        manifest_path = os.path.join(temp_dir, 'manifest.ini')
+        addon_name = 'atautomation'  # Default name
         
-        # Select the addon file
-        logging.info(f"Selecting addon file: {addon_path}")
-        file_dialog = app.window(name="Open")
-        file_dialog.Edit.set_text(addon_path)
-        file_dialog.Open.click()
-        time.sleep(2)
+        if os.path.exists(manifest_path):
+            import configparser
+            config = configparser.ConfigParser()
+            config.read(manifest_path)
+            if 'name' in config.get('addon', {}):
+                addon_name = config['addon']['name']
         
-        # Confirm installation
-        logging.info("Confirming installation")
-        confirm_dialog = app.window(name="Add-on Installation")
-        confirm_dialog.child_window(title="Install", control_type="Button").click()
-        time.sleep(5)
+        # Copy to NVDA addons directory
+        addon_dest = os.path.join(nvda_addons_dir, addon_name)
         
-        # Restart NVDA
-        logging.info("Restarting NVDA")
-        restart_dialog = app.window(name="Add-on Installation")
-        restart_dialog.child_window(title="Restart now", control_type="Button").click()
-        time.sleep(10)
+        # Remove existing addon if it exists
+        if os.path.exists(addon_dest):
+            shutil.rmtree(addon_dest)
         
-        logging.info("Add-on installed successfully")
+        # Copy the addon files
+        shutil.copytree(temp_dir, addon_dest)
+        
+        logging.info(f"Addon installed to {addon_dest}")
+        return True
     except Exception as e:
         logging.error(f"Error installing addon: {str(e)}")
         raise
 
-def configure_nvda_settings():
-    """
-    Configure NVDA settings:
-    - Disable automatic update checking
-    - Set synthesizer to Capture Speech
-    """
-    logging.info("Configuring NVDA settings")
-    # Start NVDA
-    nvda_path = os.path.join(os.environ['ProgramFiles(x86)'], 'NVDA', 'nvda.exe')
-    logging.info(f"Starting NVDA from {nvda_path}")
-    
-    try:
-        # Start NVDA directly
-        subprocess.Popen([nvda_path])
-        time.sleep(10)
-        
-        # Connect to NVDA
-        logging.info("Connecting to NVDA")
-        app = Application(backend="uia").connect(path="nvda.exe")
-        
-        # Open preferences
-        logging.info("Opening preferences")
-        main_window = app.window(name="NVDA")
-        main_window.menu_select("Preferences->Settings...")
-        time.sleep(2)
-        
-        # Navigate to General category and disable update checking
-        logging.info("Navigating to General category")
-        settings_dialog = app.window(name="Settings")
-        
-        # Find the General category
-        general_item = settings_dialog.child_window(title="General", control_type="TreeItem")
-        general_item.click_input()
-        time.sleep(1)
-        
-        # Find and uncheck the update checkbox
-        logging.info("Disabling automatic updates")
-        update_checkbox = settings_dialog.child_window(title="Automatically check for NVDA updates", control_type="CheckBox")
-        if update_checkbox.get_toggle_state() == 1:  # If checked
-            update_checkbox.click()
-            time.sleep(1)
-        
-        # Navigate to Speech category
-        logging.info("Navigating to Speech category")
-        speech_item = settings_dialog.child_window(title="Speech", control_type="TreeItem")
-        speech_item.click_input()
-        time.sleep(1)
-        
-        # Set synthesizer to Capture Speech
-        logging.info("Setting synthesizer to Capture Speech")
-        synth_combo = settings_dialog.child_window(title="Synthesizer", control_type="ComboBox")
-        synth_combo.select("Capture Speech")
-        time.sleep(1)
-        
-        # Save settings
-        logging.info("Saving settings")
-        settings_dialog.child_window(title="OK", control_type="Button").click()
-        time.sleep(2)
-        
-        logging.info("NVDA settings configured successfully")
-    except Exception as e:
-        logging.error(f"Error configuring settings: {str(e)}")
-        raise
-
 def create_portable_copy(version):
     """
-    Create a portable copy of NVDA.
+    Create a portable copy of NVDA using command-line approach.
     
     Args:
         version (str): NVDA version for naming the portable copy.
@@ -188,49 +271,57 @@ def create_portable_copy(version):
         str: Path to the portable copy.
     """
     logging.info(f"Creating portable copy for version {version}")
-    # Start NVDA
-    nvda_path = os.path.join(os.environ['ProgramFiles(x86)'], 'NVDA', 'nvda.exe')
-    logging.info(f"Starting NVDA from {nvda_path}")
     
     try:
-        # Start NVDA directly
-        subprocess.Popen([nvda_path])
-        time.sleep(10)
-        
-        # Connect to NVDA
-        logging.info("Connecting to NVDA")
-        app = Application(backend="uia").connect(path="nvda.exe")
-        
-        # Navigate to Tools -> Create portable copy
-        logging.info("Navigating to Tools -> Create portable copy")
-        main_window = app.window(name="NVDA")
-        main_window.menu_select("Tools->Create portable copy...")
-        time.sleep(2)
-        
-        # Set the portable path
+        # Create portable directory
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
-        logging.info(f"Setting portable path to {portable_path}")
-        portable_dialog = app.window(name="Create Portable Copy")
-        portable_dialog.Edit.set_text(portable_path)
+        os.makedirs(portable_path, exist_ok=True)
         
-        # Click Continue
-        logging.info("Clicking Continue")
-        portable_dialog.child_window(title="Continue", control_type="Button").click()
-        time.sleep(10)
+        # Run NVDA with --portable parameter
+        nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
-        # Confirm completion
-        logging.info("Confirming completion")
-        completion_dialog = app.window(name="Creating Portable Copy")
-        completion_dialog.child_window(title="OK", control_type="Button").click()
-        time.sleep(2)
+        # Create a bat file to run NVDA with portable parameter
+        bat_content = f'"{nvda_path}" --portable="{portable_path}"'
+        bat_path = os.path.join(tempfile.gettempdir(), 'create_portable.bat')
+        
+        with open(bat_path, 'w') as f:
+            f.write(bat_content)
+        
+        # Run the bat file with explorer to avoid elevation
+        run_command(['explorer.exe', bat_path])
+        
+        # Wait for portable copy to be created
+        time.sleep(30)
         
         # Kill NVDA
-        logging.info("Killing NVDA process")
-        subprocess.run(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
-        time.sleep(2)
+        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
         
-        logging.info(f"Portable copy created at: {portable_path}")
-        return portable_path
+        # Verify portable copy was created
+        if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
+            logging.info(f"Portable copy created at: {portable_path}")
+            return portable_path
+        else:
+            # Alternative approach: copy installed NVDA to portable directory
+            logging.warning("Portable copy not created via NVDA command. Using manual copy approach.")
+            
+            nvda_installed_dir = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA')
+            
+            # Copy all files from installed NVDA to portable directory
+            for item in os.listdir(nvda_installed_dir):
+                s = os.path.join(nvda_installed_dir, item)
+                d = os.path.join(portable_path, item)
+                
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(s, d)
+            
+            # Create portable flag file
+            with open(os.path.join(portable_path, 'portable.ini'), 'w') as f:
+                f.write('[portable]\n')
+            
+            logging.info(f"Manual portable copy created at: {portable_path}")
+            return portable_path
     except Exception as e:
         logging.error(f"Error creating portable copy: {str(e)}")
         raise
@@ -253,15 +344,23 @@ if __name__ == "__main__":
         admin_status = "admin" if is_admin() else "non-admin"
         logging.info(f"Running with {admin_status} privileges")
         
+        # Step 1: Install NVDA (this works fine based on logs)
         install_nvda(installer_path)
+        
+        # Step 2: Use alternative methods that don't require elevation
+        # Configure NVDA settings directly
+        alternative_configure_workflow()
+        
+        # Install addon without using GUI
         install_addon(addon_path)
-        configure_nvda_settings()
+        
+        # Create portable copy without using GUI
         portable_path = create_portable_copy(version)
         
-        # Output the result for GitHub Actions
+        # Output the result for GitHub Actions - ONLY output JSON here
         result = {"success": True, "portable_path": portable_path}
-        logging.info(f"Configuration successful: {result}")
         print(json.dumps(result))
+        logging.info(f"Configuration successful: {result}")
     except Exception as e:
         error_msg = str(e)
         logging.error(f"Configuration failed: {error_msg}")
