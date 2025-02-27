@@ -25,6 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 pywinauto
+        shell: pwsh
 
       - name: Get NVDA download URL
         id: nvda_info
@@ -63,17 +64,17 @@ jobs:
           }
         shell: pwsh
 
-      - name: Clone NVDA AT Automation Plugin
+      - name: Get NVDA AT Automation Plugin
         id: clone_plugin
         run: |
           $result = python scripts/clone_nvda_plugin.py | ConvertFrom-Json
 
           if (-not $result.success) {
-            Write-Error "Failed to clone NVDA plugin: $($result.error)"
+            Write-Error "Failed to get NVDA plugin: $($result.error)"
             exit 1
           }
 
-          echo "Plugin cloned successfully to: $($result.plugin_dir)"
+          echo "Plugin downloaded successfully to: $($result.plugin_dir)"
         shell: pwsh
 
       - name: Create AT Automation Plugin addon
