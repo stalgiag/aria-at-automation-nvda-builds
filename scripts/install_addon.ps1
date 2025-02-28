@@ -92,16 +92,64 @@ try {
     # Copy to NVDA addons directory
     $addonDest = Join-Path $nvdaAddonsDir $addonName
     
-    # Remove existing addon if it exists
+    # More aggressively check and remove existing addon
     if (Test-Path $addonDest) {
-        Write-Log "Removing existing addon: $addonDest"
-        Remove-Item -Path $addonDest -Recurse -Force -ErrorAction Stop
+        Write-Log "Removing existing addon at: $addonDest"
+        try {
+            # Check if it's a file rather than a directory
+            if (Test-Path $addonDest -PathType Leaf) {
+                Write-Log "WARNING: Destination exists as a file, not a directory. Removing file."
+                Remove-Item -Path $addonDest -Force -ErrorAction Stop
+            } else {
+                # For directories, make sure they're fully removed
+                Write-Log "Removing existing addon directory"
+                Remove-Item -Path $addonDest -Recurse -Force -ErrorAction Stop
+            }
+            
+            # Verify it was actually removed
+            if (Test-Path $addonDest) {
+                Write-Log "WARNING: Failed to remove existing addon, trying again with robocopy"
+                # Use robocopy to clear the directory (a common trick)
+                $emptyDir = Join-Path $env:TEMP "empty_$([Guid]::NewGuid().ToString())"
+                New-Item -Path $emptyDir -ItemType Directory -Force | Out-Null
+                robocopy $emptyDir $addonDest /MIR /NFL /NDL /NJH /NJS | Out-Null
+                Remove-Item -Path $emptyDir -Force -ErrorAction SilentlyContinue
+                Remove-Item -Path $addonDest -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+            Write-Log "Error removing existing addon: $_"
+            # Continue anyway - we'll try to handle this later
+        }
     }
     
-    # Copy the addon files
+    # Create fresh addon directory to avoid copying issues
+    Write-Log "Creating fresh addon directory: $addonDest"
+    try {
+        if (Test-Path $addonDest) {
+            Write-Log "WARNING: Destination still exists after attempted removal"
+        } else {
+            New-Item -Path $addonDest -ItemType Directory -Force | Out-Null
+        }
+    } catch {
+        Write-Log "Error creating addon directory: $_"
+        # Continue anyway - the copy might still work
+    }
+    
+    # Copy the addon files - using robocopy for reliability
     Write-Log "Copying addon to destination: $addonDest"
     try {
-        Copy-Item -Path "$tempDir\*" -Destination $addonDest -Recurse -Force -ErrorAction Stop
+        Write-Log "Trying primary copy method (robocopy)"
+        $robocopyOutput = robocopy $tempDir $addonDest /E /NFL /NDL /NJH /NJS
+        $robocopyExitCode = $LASTEXITCODE
+        Write-Log "Robocopy completed with exit code: $robocopyExitCode"
+        
+        # Robocopy has special exit codes - codes 0-7 indicate success with varying levels of copying actions
+        if ($robocopyExitCode -gt 7) {
+            Write-Log "Robocopy reported errors, trying alternative copy method"
+            Copy-Item -Path "$tempDir\*" -Destination $addonDest -Recurse -Force
+        }
+        
         Write-Log "Addon files copied successfully"
     }
     catch {
@@ -112,7 +160,12 @@ try {
     # Verify the addon was successfully installed
     if (Test-Path $addonDest) {
         $installedFiles = Get-ChildItem -Path $addonDest -Recurse
-        Write-Log "Verified addon installation: $($installedFiles.Count) files in $addonDest"
+        $fileCount = if ($installedFiles) { $installedFiles.Count } else { 0 }
+        Write-Log "Verified addon installation: $fileCount files in $addonDest"
+        
+        if ($fileCount -eq 0) {
+            throw "No files were copied to the addon destination"
+        }
     }
     else {
         throw "Addon destination directory not found after installation"
