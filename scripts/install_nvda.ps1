@@ -14,26 +14,72 @@ function Write-Log {
 Write-Log "Starting NVDA installation with installer: $InstallerPath"
 
 try {
-    # Install NVDA silently
+    # Check if installer exists
+    if (-not (Test-Path $InstallerPath)) {
+        throw "Installer not found at: $InstallerPath"
+    }
+
     Write-Log "Running installer with silent install options"
-    Start-Process -FilePath $InstallerPath -ArgumentList "--install", "--silent" -Wait -NoNewWindow
     
-    Write-Log "NVDA installation completed successfully"
+    # Use a job to run the installer with a timeout
+    $job = Start-Job -ScriptBlock {
+        param($installerPath)
+        Start-Process -FilePath $installerPath -ArgumentList "--install", "--silent" -Wait -NoNewWindow
+    } -ArgumentList $InstallerPath
     
-    # Wait for NVDA to start
-    Write-Log "Waiting for NVDA to start"
-    Start-Sleep -Seconds 10
+    # Wait for the job to complete with a timeout of 5 minutes
+    $timeout = 300  # 5 minutes in seconds
+    Write-Log "Waiting for installer to complete (timeout: $timeout seconds)"
     
-    # Kill NVDA process
-    Write-Log "Killing NVDA process"
-    Stop-Process -Name "nvda" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    $completed = Wait-Job -Job $job -Timeout $timeout
     
-    # Return success
-    @{
-        "success" = $true
-        "message" = "NVDA installed successfully"
-    } | ConvertTo-Json
+    if ($completed -eq $null) {
+        Write-Log "ERROR: Installation timed out after $timeout seconds"
+        Stop-Job -Job $job
+        Remove-Job -Job $job -Force
+        throw "NVDA installation timed out after $timeout seconds"
+    }
+    
+    # Get the job results
+    $result = Receive-Job -Job $job
+    Write-Log "Job completed with result: $result"
+    Remove-Job -Job $job
+    
+    Write-Log "NVDA installation completed"
+    
+    # Check if NVDA is running
+    Write-Log "Checking if NVDA is running"
+    $nvdaProcess = Get-Process -Name "nvda" -ErrorAction SilentlyContinue
+    
+    if ($nvdaProcess) {
+        Write-Log "NVDA is running, attempting to kill the process"
+        try {
+            Stop-Process -Name "nvda" -Force -ErrorAction Stop
+            Write-Log "NVDA process killed successfully"
+        }
+        catch {
+            Write-Log "Warning: Failed to kill NVDA process: $_"
+            # Continue anyway since this is not critical
+        }
+    }
+    else {
+        Write-Log "NVDA process not found"
+    }
+    
+    # Check if NVDA was actually installed
+    $nvdaPath = Join-Path ${env:ProgramFiles(x86)} "NVDA\nvda.exe"
+    if (Test-Path $nvdaPath) {
+        Write-Log "Successfully verified NVDA installation at: $nvdaPath"
+        
+        # Return success
+        @{
+            "success" = $true
+            "message" = "NVDA installed successfully"
+        } | ConvertTo-Json
+    }
+    else {
+        throw "NVDA executable not found at expected location: $nvdaPath"
+    }
 }
 catch {
     Write-Log "Error installing NVDA: $_"

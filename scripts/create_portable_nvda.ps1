@@ -25,60 +25,104 @@ try {
     
     New-Item -Path $portablePath -ItemType Directory -Force | Out-Null
     
-    # Method 1: Try to create portable copy using NVDA's --portable parameter
+    # Check if NVDA is installed
+    $nvdaInstalledDir = Join-Path ${env:ProgramFiles(x86)} "NVDA"
+    $nvdaExe = Join-Path $nvdaInstalledDir "nvda.exe"
+    
+    if (-not (Test-Path $nvdaExe)) {
+        throw "NVDA not found at expected location: $nvdaExe"
+    }
+    
+    Write-Log "NVDA found at: $nvdaExe"
+    
+    # Method 1: Try to create portable copy using shortcut
+    $portableCreated = $false
     try {
-        $nvdaPath = Join-Path ${env:ProgramFiles(x86)} "NVDA\nvda.exe"
-        Write-Log "NVDA path: $nvdaPath"
+        Write-Log "Attempting to create portable copy using shortcut method"
         
         # Create a shortcut that runs NVDA with the portable parameter
         $WshShell = New-Object -ComObject WScript.Shell
         $shortcutPath = Join-Path $env:TEMP "create_portable.lnk"
         $shortcut = $WshShell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $nvdaPath
+        $shortcut.TargetPath = $nvdaExe
         $shortcut.Arguments = "--portable=`"$portablePath`""
         $shortcut.Save()
         
         Write-Log "Created shortcut at: $shortcutPath"
         
-        # Use explorer to run the shortcut (avoids UAC prompt)
-        Write-Log "Running shortcut with explorer"
-        Start-Process explorer.exe -ArgumentList $shortcutPath -Wait
+        # Use a job to run the shortcut with timeout
+        $job = Start-Job -ScriptBlock {
+            param($shortcutPath)
+            Start-Process explorer.exe -ArgumentList $shortcutPath -Wait
+        } -ArgumentList $shortcutPath
         
-        # Wait for portable copy to be created
-        Write-Log "Waiting for portable copy to be created"
-        Start-Sleep -Seconds 30
+        # Wait for the job with a timeout of 1 minute
+        $timeout = 60
+        Write-Log "Running shortcut with timeout of $timeout seconds"
+        $completed = Wait-Job -Job $job -Timeout $timeout
         
-        # Kill any running NVDA processes
-        Write-Log "Killing NVDA processes"
-        Stop-Process -Name "nvda" -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        if ($completed -eq $null) {
+            Write-Log "Portable creation timed out, stopping job"
+            Stop-Job -Job $job
+        }
+        
+        # Get any results
+        $result = Receive-Job -Job $job
+        Remove-Job -Job $job -Force
+        
+        # Check for any NVDA process and kill it
+        Write-Log "Checking for NVDA processes"
+        Get-Process -Name "nvda" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Log "Killing NVDA process with ID: $($_.Id)"
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Check if portable was created
+        $portableExe = Join-Path $portablePath "nvda.exe"
+        if (Test-Path $portableExe) {
+            Write-Log "Portable copy created successfully using shortcut method"
+            $portableCreated = $true
+        } else {
+            Write-Log "Shortcut method failed to create portable copy"
+        }
     }
     catch {
-        Write-Log "Error creating portable copy with shortcut: $_"
+        Write-Log "Error with shortcut method: $_"
     }
     
-    # Check if portable copy was created
-    $portableExe = Join-Path $portablePath "nvda.exe"
-    if (Test-Path $portableExe) {
-        Write-Log "Portable copy created successfully at: $portablePath"
-    }
-    else {
-        # Method 2: Manually copy installed NVDA to portable directory
-        Write-Log "Portable copy not created via NVDA command. Using manual copy approach."
+    # Method 2: If Method 1 failed, manually copy NVDA
+    if (-not $portableCreated) {
+        Write-Log "Using manual copy method to create portable NVDA"
         
-        $nvdaInstalledDir = Join-Path ${env:ProgramFiles(x86)} "NVDA"
-        Write-Log "Copying from installed directory: $nvdaInstalledDir"
-        
-        # Copy all files from installed NVDA to portable directory
-        Copy-Item -Path "$nvdaInstalledDir\*" -Destination $portablePath -Recurse -Force
-        
-        # Create portable flag file
-        Set-Content -Path (Join-Path $portablePath "portable.ini") -Value "[portable]`n"
-        
-        Write-Log "Manual portable copy created at: $portablePath"
+        try {
+            # Copy all files from installed NVDA to portable directory
+            Write-Log "Copying from $nvdaInstalledDir to $portablePath"
+            
+            # Use robocopy for more reliable copying
+            $robocopyOutput = robocopy $nvdaInstalledDir $portablePath /E /NFL /NDL /NJH /NJS /nc /ns /np
+            Write-Log "Robocopy completed with exit code: $LASTEXITCODE"
+            
+            # Create portable flag file
+            $portableIni = Join-Path $portablePath "portable.ini"
+            Write-Log "Creating portable flag file: $portableIni"
+            Set-Content -Path $portableIni -Value "[portable]`n"
+            
+            $portableExe = Join-Path $portablePath "nvda.exe"
+            if (Test-Path $portableExe) {
+                Write-Log "Portable copy created successfully using manual method"
+                $portableCreated = $true
+            } else {
+                throw "Failed to create portable copy using manual method"
+            }
+        }
+        catch {
+            Write-Log "Error with manual copy method: $_"
+            throw "Failed to create portable copy: $_"
+        }
     }
     
     # Verify the portable copy exists
+    $portableExe = Join-Path $portablePath "nvda.exe"
     if (Test-Path $portableExe) {
         # Return success
         @{
