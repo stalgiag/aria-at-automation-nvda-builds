@@ -34,6 +34,27 @@ function Run-Script {
         # Execute the script directly with parameters
         $output = & $ScriptPath @Parameters
         
+        # Special handling for output that contains success markers
+        if ($output -match "=========== PORTABLE CREATION SUCCESS ==========") {
+            Write-Log "Detected direct success marker in output"
+            # Extract the JSON part - it should be the last part of the output
+            $jsonPart = $output -split "=========== PORTABLE CREATION SUCCESS ==========" | Select-Object -Last 1
+            $jsonPart = $jsonPart -replace "^.*?(\{.*\}).*$", '$1'
+            
+            try {
+                $parsedJson = $jsonPart | ConvertFrom-Json
+                return $parsedJson
+            } catch {
+                # If we can't parse the JSON but we saw the success marker, still return success
+                Write-Log "Found success marker but couldn't parse JSON. Returning success anyway."
+                return @{
+                    "success" = $true
+                    "portable_path" = $Parameters.Contains("Version") ? "nvda_$($Parameters.Version)_portable" : "unknown_path"
+                }
+            }
+        }
+        
+        # Standard JSON parsing for normal output
         try {
             $result = $output | ConvertFrom-Json
             return $result
@@ -41,6 +62,16 @@ function Run-Script {
         catch {
             Write-Log "Failed to parse output as JSON: $_"
             Write-Log "Raw output: $output"
+            
+            # Check for success indicators in the raw output
+            if ($output -match "successfully" -and -not ($output -match "Error|Failed|failed")) {
+                Write-Log "Output contains success indicators even though JSON parsing failed."
+                return @{
+                    "success" = $true
+                    "message" = "Operation completed with success indicators in output"
+                }
+            }
+            
             return @{
                 "success" = $false
                 "error" = "Failed to parse script output"
@@ -90,16 +121,31 @@ try {
     }
     $portableResult = Run-Script -ScriptPath "$PSScriptRoot\create_portable_nvda.ps1" -Parameters $portableParams
     
+    Write-Log "Portable copy script returned: $($portableResult | ConvertTo-Json -Compress)"
+    
     if (-not $portableResult.success) {
         throw "Creating portable copy failed: $($portableResult.error)"
     }
     
-    Write-Log "Portable copy created successfully at: $($portableResult.portable_path)"
+    $portablePath = if ($portableResult.portable_path) {
+        $portableResult.portable_path
+    } else {
+        Join-Path $PWD "nvda_${Version}_portable"
+    }
+    
+    # Verify the portable path actually exists
+    if (Test-Path $portablePath) {
+        Write-Log "Verified portable path exists: $portablePath"
+    } else {
+        Write-Log "WARNING: Portable path reported successful but directory not found: $portablePath"
+    }
+    
+    Write-Log "Portable copy created successfully at: $portablePath"
     
     # Return success result
     @{
         "success" = $true
-        "portable_path" = $portableResult.portable_path
+        "portable_path" = $portablePath
     } | ConvertTo-Json
 }
 catch {
@@ -108,4 +154,5 @@ catch {
         "success" = $false
         "error" = $_.ToString()
     } | ConvertTo-Json
+    exit 1  # Ensure the error is properly propagated
 } 

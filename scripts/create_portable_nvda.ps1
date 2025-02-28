@@ -44,9 +44,21 @@ try {
         Write-Log "Copying from $nvdaInstalledDir to $portablePath"
         
         # Use robocopy for more reliable copying
-        $robocopyOutput = robocopy $nvdaInstalledDir $portablePath /E /NFL /NDL /NJH /NJS /nc /ns /np
+        Write-Log "Running robocopy to copy files"
+        & robocopy $nvdaInstalledDir $portablePath /E /NFL /NDL /NJH /NJS /nc /ns /np
         $robocopyExitCode = $LASTEXITCODE
-        Write-Log "Robocopy completed with exit code: $robocopyExitCode"
+        
+        # Interpret robocopy exit codes correctly
+        # 0 = No files copied
+        # 1 = Files copied successfully
+        # 2-7 = Some files copied with additional info
+        # 8+ = At least one failure
+        if ($robocopyExitCode -lt 8) {
+            Write-Log "Robocopy completed successfully with exit code: $robocopyExitCode (codes 0-7 indicate success)"
+        } else {
+            Write-Log "ERROR: Robocopy failed with exit code: $robocopyExitCode"
+            throw "Robocopy failed with exit code $robocopyExitCode"
+        }
         
         # Check for any NVDA process and kill it
         Write-Log "Checking for NVDA processes"
@@ -75,7 +87,11 @@ try {
     
     # Verify the portable copy exists as final check
     if ($portableCreated) {
-        # Return success
+        # Return success with detailed information
+        Write-Log "Successfully created portable NVDA"
+        Write-Host "=========== PORTABLE CREATION SUCCESS =========="
+        Write-Host "Portable path: $portablePath"
+        
         @{
             "success" = $true
             "portable_path" = $portablePath
@@ -87,6 +103,9 @@ try {
 }
 catch {
     Write-Log "Error creating portable NVDA: $_"
+    Write-Host "=========== PORTABLE CREATION FAILED =========="
+    Write-Host "Error: $_"
+    
     @{
         "success" = $false
         "error" = $_.ToString()
