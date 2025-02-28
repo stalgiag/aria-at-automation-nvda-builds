@@ -71,6 +71,11 @@ try {
             if ($manifestContent -match '(?m)^name\s*=\s*(.+)$') {
                 $addonName = $matches[1].Trim()
                 Write-Log "Found addon name in manifest: $addonName"
+                
+                # Strip quotes from addon name if present
+                $addonName = $addonName -replace '^"(.*)"$', '$1'
+                $addonName = $addonName -replace "^'(.*)'$", '$1'
+                Write-Log "Sanitized addon name for filesystem use: $addonName"
             }
             else {
                 Write-Log "No name found in manifest, using default: $addonName"
