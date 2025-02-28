@@ -11,12 +11,12 @@ function Write-Log {
     "$timestamp - $Message" | Out-File -Append -FilePath $LogFile
 }
 
-Write-Log "Starting to create portable NVDA for version: $Version"
+Write-Log "Starting to create portable NVDA for version: ${Version}"
 
 try {
     # Create portable directory
     $portablePath = Join-Path $PWD "nvda_${Version}_portable"
-    Write-Log "Creating portable directory: $portablePath"
+    Write-Log "Creating portable directory: ${portablePath}"
     
     if (Test-Path $portablePath) {
         Write-Log "Removing existing portable directory"
@@ -30,10 +30,10 @@ try {
     $nvdaExe = Join-Path $nvdaInstalledDir "nvda.exe"
     
     if (-not (Test-Path $nvdaExe)) {
-        throw "NVDA not found at expected location: $nvdaExe"
+        throw "NVDA not found at expected location: ${nvdaExe}"
     }
     
-    Write-Log "NVDA found at: $nvdaExe"
+    Write-Log "NVDA found at: ${nvdaExe}"
     
     # Skip the built-in portable creation option as it requires admin rights
     Write-Log "Skipping NVDA's built-in portable creation (requires elevation)"
@@ -41,7 +41,7 @@ try {
     
     try {
         # Copy all files from installed NVDA to portable directory
-        Write-Log "Copying from $nvdaInstalledDir to $portablePath"
+        Write-Log "Copying from ${nvdaInstalledDir} to ${portablePath}"
         
         # Use robocopy for more reliable copying
         Write-Log "Running robocopy to copy files"
@@ -54,10 +54,10 @@ try {
         # 2-7 = Some files copied with additional info
         # 8+ = At least one failure
         if ($robocopyExitCode -lt 8) {
-            Write-Log "Robocopy completed successfully with exit code: $robocopyExitCode (codes 0-7 indicate success)"
+            Write-Log "Robocopy completed successfully with exit code: ${robocopyExitCode} (codes 0-7 indicate success)"
         } else {
-            Write-Log "ERROR: Robocopy failed with exit code: $robocopyExitCode"
-            throw "Robocopy failed with exit code $robocopyExitCode"
+            Write-Log "ERROR: Robocopy failed with exit code: ${robocopyExitCode}"
+            throw "Robocopy failed with exit code ${robocopyExitCode}"
         }
         
         # Check for any NVDA process and kill it
@@ -91,21 +91,21 @@ try {
                 $sourcePath = $addonDir.FullName
                 $destPath = Join-Path $addonsDir $addonName
                 
-                Write-Log "Copying addon: $addonName"
+                Write-Log "Copying addon: ${addonName}"
                 try {
                     # Use robocopy for reliable copying
                     robocopy $sourcePath $destPath /E /NFL /NDL /NJH /NJS
                     
                     # Check if robocopy was successful (exit codes 0-7 indicate success)
                     if ($LASTEXITCODE -lt 8) {
-                        Write-Log "Successfully copied addon: $addonName"
+                        Write-Log "Successfully copied addon: ${addonName}"
                     } else {
-                        Write-Log "WARNING: Robocopy reported issues when copying addon: $addonName (Exit code: $LASTEXITCODE)"
+                        Write-Log "WARNING: Robocopy reported issues when copying addon: ${addonName} (Exit code: ${LASTEXITCODE})"
                         Write-Log "Trying alternative copy method"
                         Copy-Item -Path "$sourcePath\*" -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
                     }
                 } catch {
-                    Write-Log "Error copying addon $addonName: $_"
+                    Write-Log "Error copying addon ${addonName}: $_"
                     # Continue with other addons - this is not critical
                 }
             }
@@ -116,7 +116,7 @@ try {
         # Specifically look for AT Automation addon
         $atAutomationDirs = Get-ChildItem -Path $addonsDir -Directory | Where-Object { $_.Name -match "CommandSocket" -or $_.Name -match "at-automation" }
         if ($atAutomationDirs) {
-            Write-Log "AT Automation addon found in portable installation: $($atAutomationDirs.Name)"
+            Write-Log "AT Automation addon found in portable installation: ${atAutomationDirs.Name}"
         } else {
             Write-Log "WARNING: AT Automation addon not found in portable installation"
         }
@@ -139,7 +139,7 @@ try {
         # Return success with detailed information
         Write-Log "Successfully created portable NVDA"
         Write-Host "=========== PORTABLE CREATION SUCCESS =========="
-        Write-Host "Portable path: $portablePath"
+        Write-Host "Portable path: ${portablePath}"
         
         @{
             "success" = $true

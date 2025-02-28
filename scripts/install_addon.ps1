@@ -16,26 +16,26 @@ Write-Log "Starting addon installation from: $AddonPath"
 try {
     # Verify the addon file exists
     if (-not (Test-Path $AddonPath)) {
-        throw "Addon file not found at: $AddonPath"
+        throw "Addon file not found at: ${AddonPath}"
     }
 
-    Write-Log "Addon file found: $AddonPath (Size: $((Get-Item $AddonPath).Length) bytes)"
+    Write-Log "Addon file found: ${AddonPath} (Size: $((Get-Item $AddonPath).Length) bytes)"
     
     # Create addons directory if it doesn't exist
     $appdata = $env:APPDATA
-    Write-Log "Using APPDATA directory: $appdata"
+    Write-Log "Using APPDATA directory: ${appdata}"
     
     $nvdaAddonsDir = Join-Path $appdata "nvda\addons"
     
     if (-not (Test-Path $nvdaAddonsDir)) {
-        Write-Log "Creating addons directory: $nvdaAddonsDir"
+        Write-Log "Creating addons directory: ${nvdaAddonsDir}"
         New-Item -Path $nvdaAddonsDir -ItemType Directory -Force | Out-Null
     }
     
     # Create a unique temporary directory
     $tempId = [Guid]::NewGuid().ToString()
     $tempDir = Join-Path $env:TEMP $tempId
-    Write-Log "Creating temporary directory: $tempDir"
+    Write-Log "Creating temporary directory: ${tempDir}"
     New-Item -Path $tempDir -ItemType Directory -Force | Out-Null
     
     # Extract the addon with error handling
@@ -62,7 +62,7 @@ try {
     $addonName = "atautomation"  # Default name
     
     if (Test-Path $manifestPath) {
-        Write-Log "Reading addon manifest: $manifestPath"
+        Write-Log "Reading addon manifest: ${manifestPath}"
         $manifestContent = Get-Content $manifestPath -Raw -ErrorAction SilentlyContinue
         
         if ($manifestContent) {
@@ -70,23 +70,23 @@ try {
             # Try to extract name from manifest
             if ($manifestContent -match '(?m)^name\s*=\s*(.+)$') {
                 $addonName = $matches[1].Trim()
-                Write-Log "Found addon name in manifest: $addonName"
+                Write-Log "Found addon name in manifest: ${addonName}"
                 
                 # Strip quotes from addon name if present
                 $addonName = $addonName -replace '^"(.*)"$', '$1'
                 $addonName = $addonName -replace "^'(.*)'$", '$1'
-                Write-Log "Sanitized addon name for filesystem use: $addonName"
+                Write-Log "Sanitized addon name for filesystem use: ${addonName}"
             }
             else {
-                Write-Log "No name found in manifest, using default: $addonName"
+                Write-Log "No name found in manifest, using default: ${addonName}"
             }
         }
         else {
-            Write-Log "Manifest file is empty, using default name: $addonName"
+            Write-Log "Manifest file is empty, using default name: ${addonName}"
         }
     }
     else {
-        Write-Log "Manifest file not found, using default name: $addonName"
+        Write-Log "Manifest file not found, using default name: ${addonName}"
     }
     
     # Copy to NVDA addons directory
@@ -94,7 +94,7 @@ try {
     
     # More aggressively check and remove existing addon
     if (Test-Path $addonDest) {
-        Write-Log "Removing existing addon at: $addonDest"
+        Write-Log "Removing existing addon at: ${addonDest}"
         try {
             # Check if it's a file rather than a directory
             if (Test-Path $addonDest -PathType Leaf) {
@@ -124,7 +124,7 @@ try {
     }
     
     # Create fresh addon directory to avoid copying issues
-    Write-Log "Creating fresh addon directory: $addonDest"
+    Write-Log "Creating fresh addon directory: ${addonDest}"
     try {
         if (Test-Path $addonDest) {
             Write-Log "WARNING: Destination still exists after attempted removal"
@@ -137,12 +137,12 @@ try {
     }
     
     # Copy the addon files - using robocopy for reliability
-    Write-Log "Copying addon to destination: $addonDest"
+    Write-Log "Copying addon to destination: ${addonDest}"
     try {
         Write-Log "Trying primary copy method (robocopy)"
         $robocopyOutput = robocopy $tempDir $addonDest /E /NFL /NDL /NJH /NJS
         $robocopyExitCode = $LASTEXITCODE
-        Write-Log "Robocopy completed with exit code: $robocopyExitCode"
+        Write-Log "Robocopy completed with exit code: ${robocopyExitCode}"
         
         # Robocopy has special exit codes - codes 0-7 indicate success with varying levels of copying actions
         if ($robocopyExitCode -gt 7) {
@@ -161,7 +161,7 @@ try {
     if (Test-Path $addonDest) {
         $installedFiles = Get-ChildItem -Path $addonDest -Recurse
         $fileCount = if ($installedFiles) { $installedFiles.Count } else { 0 }
-        Write-Log "Verified addon installation: $fileCount files in $addonDest"
+        Write-Log "Verified addon installation: ${fileCount} files in ${addonDest}"
         
         if ($fileCount -eq 0) {
             throw "No files were copied to the addon destination"
@@ -186,13 +186,13 @@ try {
         $portableDirs = Get-Item -Path $portablePattern -ErrorAction SilentlyContinue
         if ($portableDirs) {
             foreach ($portableDir in $portableDirs) {
-                Write-Log "Found potential portable NVDA installation: $($portableDir.FullName)"
+                Write-Log "Found potential portable NVDA installation: ${portableDir.FullName}"
                 $portableUserConfig = Join-Path $portableDir.FullName "userConfig"
                 $portableAddonsDir = Join-Path $portableUserConfig "addons"
                 
                 # Create addons directory if it doesn't exist
                 if (-not (Test-Path $portableAddonsDir)) {
-                    Write-Log "Creating portable addons directory: $portableAddonsDir"
+                    Write-Log "Creating portable addons directory: ${portableAddonsDir}"
                     New-Item -Path $portableAddonsDir -ItemType Directory -Force | Out-Null
                 }
                 
@@ -200,19 +200,19 @@ try {
                 
                 # Remove existing addon
                 if (Test-Path $portableAddonDest) {
-                    Write-Log "Removing existing addon from portable installation: $portableAddonDest"
+                    Write-Log "Removing existing addon from portable installation: ${portableAddonDest}"
                     Remove-Item -Path $portableAddonDest -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 
                 # Copy addon to portable installation
-                Write-Log "Copying addon to portable installation: $portableAddonDest"
+                Write-Log "Copying addon to portable installation: ${portableAddonDest}"
                 try {
                     $robocopyOutput = robocopy $tempDir $portableAddonDest /E /NFL /NDL /NJH /NJS
                     $robocopyExitCode = $LASTEXITCODE
                     
                     # Robocopy has special exit codes - codes 0-7 indicate success
                     if ($robocopyExitCode -le 7) {
-                        Write-Log "Successfully installed addon to portable NVDA: $portableAddonDest"
+                        Write-Log "Successfully installed addon to portable NVDA: ${portableAddonDest}"
                     } else {
                         Write-Log "Robocopy reported errors, trying alternative copy method"
                         Copy-Item -Path "$tempDir\*" -Destination $portableAddonDest -Recurse -Force -ErrorAction SilentlyContinue
