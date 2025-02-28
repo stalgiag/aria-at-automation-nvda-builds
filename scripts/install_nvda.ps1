@@ -20,11 +20,12 @@ try {
     }
 
     Write-Log "Running installer with silent install options"
+    Write-Log "Using --install-silent flag instead of --install --silent"
     
     # Use a job to run the installer with a timeout
     $job = Start-Job -ScriptBlock {
         param($installerPath)
-        Start-Process -FilePath $installerPath -ArgumentList "--install", "--silent" -Wait -NoNewWindow
+        Start-Process -FilePath $installerPath -ArgumentList "--install-silent" -Wait -NoNewWindow
     } -ArgumentList $InstallerPath
     
     # Wait for the job to complete with a timeout of 5 minutes
@@ -47,12 +48,13 @@ try {
     
     Write-Log "NVDA installation completed"
     
-    # Check if NVDA is running
-    Write-Log "Checking if NVDA is running"
+    # Since we're using --install-silent, NVDA should not start automatically
+    # but let's check anyway
+    Write-Log "Checking if NVDA is running (should not be with --install-silent)"
     $nvdaProcess = Get-Process -Name "nvda" -ErrorAction SilentlyContinue
     
     if ($nvdaProcess) {
-        Write-Log "NVDA is running, attempting to kill the process"
+        Write-Log "NVDA is running (unexpected), attempting to kill the process"
         try {
             Stop-Process -Name "nvda" -Force -ErrorAction Stop
             Write-Log "NVDA process killed successfully"
@@ -63,7 +65,7 @@ try {
         }
     }
     else {
-        Write-Log "NVDA process not found"
+        Write-Log "NVDA process not found (expected behavior with --install-silent)"
     }
     
     # Check if NVDA was actually installed

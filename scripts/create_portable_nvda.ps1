@@ -35,63 +35,47 @@ try {
     
     Write-Log "NVDA found at: $nvdaExe"
     
-    # Method 1: Try to create portable copy using shortcut
-    $portableCreated = $false
-    try {
-        Write-Log "Attempting to create portable copy using shortcut method"
-        
-        # Create a shortcut that runs NVDA with the portable parameter
-        $WshShell = New-Object -ComObject WScript.Shell
-        $shortcutPath = Join-Path $env:TEMP "create_portable.lnk"
-        $shortcut = $WshShell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $nvdaExe
-        $shortcut.Arguments = "--portable=`"$portablePath`""
-        $shortcut.Save()
-        
-        Write-Log "Created shortcut at: $shortcutPath"
-        
-        # Use a job to run the shortcut with timeout
-        $job = Start-Job -ScriptBlock {
-            param($shortcutPath)
-            Start-Process explorer.exe -ArgumentList $shortcutPath -Wait
-        } -ArgumentList $shortcutPath
-        
-        # Wait for the job with a timeout of 1 minute
-        $timeout = 60
-        Write-Log "Running shortcut with timeout of $timeout seconds"
-        $completed = Wait-Job -Job $job -Timeout $timeout
-        
-        if ($completed -eq $null) {
-            Write-Log "Portable creation timed out, stopping job"
-            Stop-Job -Job $job
-        }
-        
-        # Get any results
-        $result = Receive-Job -Job $job
-        Remove-Job -Job $job -Force
-        
-        # Check for any NVDA process and kill it
-        Write-Log "Checking for NVDA processes"
-        Get-Process -Name "nvda" -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Log "Killing NVDA process with ID: $($_.Id)"
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-        }
-        
-        # Check if portable was created
-        $portableExe = Join-Path $portablePath "nvda.exe"
-        if (Test-Path $portableExe) {
-            Write-Log "Portable copy created successfully using shortcut method"
-            $portableCreated = $true
-        } else {
-            Write-Log "Shortcut method failed to create portable copy"
-        }
-    }
-    catch {
-        Write-Log "Error with shortcut method: $_"
+    # Method 1: Use NVDA's built-in portable creation option
+    Write-Log "Attempting to create portable copy using NVDA's built-in --create-portable-silent option"
+    
+    # Use a job to run with timeout
+    $job = Start-Job -ScriptBlock {
+        param($nvdaExe, $portablePath)
+        Start-Process -FilePath $nvdaExe -ArgumentList "--create-portable-silent", "--portable-path=`"$portablePath`"" -Wait -NoNewWindow
+    } -ArgumentList $nvdaExe, $portablePath
+    
+    # Wait for the job with a timeout of 2 minutes
+    $timeout = 120 # 2 minutes
+    Write-Log "Running portable creation with timeout of $timeout seconds"
+    $completed = Wait-Job -Job $job -Timeout $timeout
+    
+    if ($completed -eq $null) {
+        Write-Log "Portable creation timed out, stopping job"
+        Stop-Job -Job $job
     }
     
-    # Method 2: If Method 1 failed, manually copy NVDA
-    if (-not $portableCreated) {
+    # Get any results
+    $result = Receive-Job -Job $job
+    Write-Log "Job result: $result"
+    Remove-Job -Job $job -Force
+    
+    # Check for any NVDA process and kill it
+    Write-Log "Checking for NVDA processes"
+    Get-Process -Name "nvda" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Log "Killing NVDA process with ID: $($_.Id)"
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Check if portable was created
+    $portableExe = Join-Path $portablePath "nvda.exe"
+    $portableCreated = Test-Path $portableExe
+    
+    if ($portableCreated) {
+        Write-Log "Portable copy created successfully using NVDA's built-in option"
+    } else {
+        Write-Log "NVDA's built-in option failed to create portable copy"
+        
+        # Method 2: Manual copy method
         Write-Log "Using manual copy method to create portable NVDA"
         
         try {
@@ -107,10 +91,9 @@ try {
             Write-Log "Creating portable flag file: $portableIni"
             Set-Content -Path $portableIni -Value "[portable]`n"
             
-            $portableExe = Join-Path $portablePath "nvda.exe"
-            if (Test-Path $portableExe) {
+            $portableCreated = Test-Path $portableExe
+            if ($portableCreated) {
                 Write-Log "Portable copy created successfully using manual method"
-                $portableCreated = $true
             } else {
                 throw "Failed to create portable copy using manual method"
             }
@@ -121,9 +104,8 @@ try {
         }
     }
     
-    # Verify the portable copy exists
-    $portableExe = Join-Path $portablePath "nvda.exe"
-    if (Test-Path $portableExe) {
+    # Verify the portable copy exists as final check
+    if ($portableCreated) {
         # Return success
         @{
             "success" = $true
