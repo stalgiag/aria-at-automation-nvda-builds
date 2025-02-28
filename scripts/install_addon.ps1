@@ -175,6 +175,62 @@ try {
     Write-Log "Cleaning up temporary directory"
     Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     
+    # Also check for existing portable NVDA installations and install there if found
+    # Look for portable NVDA in the workspace directory
+    $potentialPortableLocations = @(
+        "$PWD\nvda_*_portable", 
+        "$env:USERPROFILE\nvda_*_portable"
+    )
+    
+    foreach ($portablePattern in $potentialPortableLocations) {
+        $portableDirs = Get-Item -Path $portablePattern -ErrorAction SilentlyContinue
+        if ($portableDirs) {
+            foreach ($portableDir in $portableDirs) {
+                Write-Log "Found potential portable NVDA installation: $($portableDir.FullName)"
+                $portableUserConfig = Join-Path $portableDir.FullName "userConfig"
+                $portableAddonsDir = Join-Path $portableUserConfig "addons"
+                
+                # Create addons directory if it doesn't exist
+                if (-not (Test-Path $portableAddonsDir)) {
+                    Write-Log "Creating portable addons directory: $portableAddonsDir"
+                    New-Item -Path $portableAddonsDir -ItemType Directory -Force | Out-Null
+                }
+                
+                $portableAddonDest = Join-Path $portableAddonsDir $addonName
+                
+                # Remove existing addon
+                if (Test-Path $portableAddonDest) {
+                    Write-Log "Removing existing addon from portable installation: $portableAddonDest"
+                    Remove-Item -Path $portableAddonDest -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                
+                # Copy addon to portable installation
+                Write-Log "Copying addon to portable installation: $portableAddonDest"
+                try {
+                    $robocopyOutput = robocopy $tempDir $portableAddonDest /E /NFL /NDL /NJH /NJS
+                    $robocopyExitCode = $LASTEXITCODE
+                    
+                    # Robocopy has special exit codes - codes 0-7 indicate success
+                    if ($robocopyExitCode -le 7) {
+                        Write-Log "Successfully installed addon to portable NVDA: $portableAddonDest"
+                    } else {
+                        Write-Log "Robocopy reported errors, trying alternative copy method"
+                        Copy-Item -Path "$tempDir\*" -Destination $portableAddonDest -Recurse -Force -ErrorAction SilentlyContinue
+                        
+                        if (Test-Path $portableAddonDest) {
+                            Write-Log "Successfully installed addon to portable NVDA using alternative method"
+                        } else {
+                            Write-Log "Failed to install addon to portable NVDA"
+                        }
+                    }
+                } catch {
+                    Write-Log "Error installing addon to portable NVDA: $_"
+                    # Continue anyway - this is not critical for regular installation
+                }
+            }
+        }
+    }
+    
     Write-Log "Addon installation completed successfully"
     
     # Return success

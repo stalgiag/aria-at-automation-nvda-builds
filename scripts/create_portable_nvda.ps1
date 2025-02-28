@@ -72,6 +72,55 @@ try {
         Write-Log "Creating portable flag file: $portableIni"
         Set-Content -Path $portableIni -Value "[portable]`n"
         
+        # Create userConfig/addons directory structure
+        $userConfigDir = Join-Path $portablePath "userConfig"
+        $addonsDir = Join-Path $userConfigDir "addons"
+        Write-Log "Creating userConfig/addons directory: $addonsDir"
+        New-Item -Path $addonsDir -ItemType Directory -Force | Out-Null
+        
+        # Copy any installed NVDA addons to the portable installation
+        $installedAddonsDir = Join-Path $env:APPDATA "nvda\addons"
+        if (Test-Path $installedAddonsDir) {
+            Write-Log "Copying addons from installed NVDA"
+            
+            # Get list of installed addons
+            $addonDirs = Get-ChildItem -Path $installedAddonsDir -Directory
+            
+            foreach ($addonDir in $addonDirs) {
+                $addonName = $addonDir.Name
+                $sourcePath = $addonDir.FullName
+                $destPath = Join-Path $addonsDir $addonName
+                
+                Write-Log "Copying addon: $addonName"
+                try {
+                    # Use robocopy for reliable copying
+                    robocopy $sourcePath $destPath /E /NFL /NDL /NJH /NJS
+                    
+                    # Check if robocopy was successful (exit codes 0-7 indicate success)
+                    if ($LASTEXITCODE -lt 8) {
+                        Write-Log "Successfully copied addon: $addonName"
+                    } else {
+                        Write-Log "WARNING: Robocopy reported issues when copying addon: $addonName (Exit code: $LASTEXITCODE)"
+                        Write-Log "Trying alternative copy method"
+                        Copy-Item -Path "$sourcePath\*" -Destination $destPath -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                } catch {
+                    Write-Log "Error copying addon $addonName: $_"
+                    # Continue with other addons - this is not critical
+                }
+            }
+        } else {
+            Write-Log "No installed addons directory found at: $installedAddonsDir"
+        }
+        
+        # Specifically look for AT Automation addon
+        $atAutomationDirs = Get-ChildItem -Path $addonsDir -Directory | Where-Object { $_.Name -match "CommandSocket" -or $_.Name -match "at-automation" }
+        if ($atAutomationDirs) {
+            Write-Log "AT Automation addon found in portable installation: $($atAutomationDirs.Name)"
+        } else {
+            Write-Log "WARNING: AT Automation addon not found in portable installation"
+        }
+        
         $portableExe = Join-Path $portablePath "nvda.exe"
         $portableCreated = Test-Path $portableExe
         if ($portableCreated) {

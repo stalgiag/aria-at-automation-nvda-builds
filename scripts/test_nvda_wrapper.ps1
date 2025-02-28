@@ -37,7 +37,7 @@ try {
         "library.zip",
         "synthDrivers",
         "locale",
-        "addons"
+        "userConfig"
     )
     
     $missingFiles = @()
@@ -53,19 +53,20 @@ try {
         }
     }
     
-    # Check for AT Automation addon
-    $addonsDir = Join-Path $PortablePath "addons"
+    # Check for AT Automation addon in userConfig/addons
+    $addonsDir = Join-Path $PortablePath "userConfig\addons"
     if (Test-Path $addonsDir) {
+        Write-Log "Found addons directory at: $addonsDir"
         $commandSocketDir = Get-ChildItem -Path $addonsDir -Directory | Where-Object { $_.Name -match "CommandSocket" -or $_.Name -match "at-automation" }
         if ($commandSocketDir) {
             Write-Log "Found AT Automation addon: $($commandSocketDir.Name)"
             $hasAtAutomation = $true
         } else {
-            Write-Log "AT Automation addon not found in addons directory"
+            Write-Log "AT Automation addon not found in userConfig/addons directory"
             $hasAtAutomation = $false
         }
     } else {
-        Write-Log "Addons directory not found"
+        Write-Log "userConfig/addons directory not found"
         $hasAtAutomation = $false
     }
     
@@ -89,7 +90,30 @@ try {
     
     if (-not $structureCheckPassed) {
         Write-Log "Structural check failed, not attempting to run NVDA"
-        throw "Structural verification failed: Missing files: $($missingFiles -join ', '). Has portable flag: $hasPortableFlag. Has AT Automation addon: $hasAtAutomation"
+        
+        # Provide more detailed error message
+        $errorDetails = ""
+        if ($missingFiles.Count -gt 0) {
+            $errorDetails += "Missing critical files: $($missingFiles -join ', '). "
+        }
+        if (-not $hasPortableFlag) {
+            $errorDetails += "Missing or invalid portable.ini file. "
+        }
+        if (-not $hasAtAutomation) {
+            $errorDetails += "AT Automation addon not found in userConfig/addons directory. "
+            
+            # Check if the userConfig directory exists
+            $userConfigDir = Join-Path $PortablePath "userConfig"
+            if (Test-Path $userConfigDir) {
+                Write-Log "userConfig directory exists but either addons subdirectory is missing or doesn't contain the AT Automation addon"
+                $errorDetails += "The userConfig directory exists but the addons subdirectory is missing or doesn't contain CommandSocket. "
+            } else {
+                Write-Log "userConfig directory doesn't exist"
+                $errorDetails += "The userConfig directory doesn't exist. "
+            }
+        }
+        
+        throw "Structural verification failed: $errorDetails"
     }
     
     Write-Log "Structural check passed, attempting to run NVDA"
@@ -199,7 +223,7 @@ try {
         Write-Log "Structural verification failed - portable copy is missing critical components"
         @{
             "success" = $false
-            "error" = "Structural verification failed: Missing files: $($missingFiles -join ', '). Has portable flag: $hasPortableFlag"
+            "error" = "Structural verification failed: Missing files: $($missingFiles -join ', '). Has portable flag: $hasPortableFlag. Has AT Automation addon in userConfig/addons: $hasAtAutomation"
         } | ConvertTo-Json
     }
 }
