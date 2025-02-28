@@ -107,7 +107,7 @@ try {
         $status = "Failed"
         for ($sleeps = 1; $sleeps -le $MaxTries; $sleeps++) {
             try {
-                Write-Log "Try $sleeps: Making request to $RequestURL"
+                Write-Log "Try ${sleeps}: Making request to $RequestURL"
                 $response = Invoke-WebRequest -UseBasicParsing -Uri $RequestURL -TimeoutSec 5 -ErrorAction Stop
                 $status = "Success (HTTP $($response.StatusCode))"
                 break
