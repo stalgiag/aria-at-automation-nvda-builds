@@ -288,7 +288,7 @@ jobs:
 
       - name: Package NVDA portable
         run: |
-          $zipPath = "nvda_$env:NVDA_VERSION-at-automation.zip"
+          $zipPath = "$env:NVDA_VERSION.zip"
           Compress-Archive -Path "$env:PORTABLE_PATH\*" -DestinationPath $zipPath
           echo "ZIP_PATH=$zipPath" >> $env:GITHUB_ENV
         shell: pwsh
@@ -307,10 +307,11 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nvda-${{ env.NVDA_VERSION }}
-          name: NVDA ${{ env.NVDA_VERSION }} with AT Automation
+          tag_name: ${{ env.NVDA_VERSION }}
+          name: ${{ env.NVDA_VERSION }}
           files: ${{ env.ZIP_PATH }}
           draft: false
           prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
