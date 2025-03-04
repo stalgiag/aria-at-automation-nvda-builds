@@ -67,8 +67,7 @@ def get_nvda_plugin():
     import scripts.clone_nvda_plugin as clone_nvda_plugin
 
     try:
-        result = clone_nvda_plugin.clone_plugin()
-        
+        result = clone_nvda_plugin.clone_nvda_plugin()
         if not result['success']:
             raise Exception(result['error'])
         
@@ -109,6 +108,7 @@ def create_plugin_addon():
         
         # Rename to .nvda-addon
         os.rename('at-automation.zip', 'at-automation.nvda-addon')
+        print("AT Automation addon created successfully")
     except Exception as e:
         print(f"Error creating addon: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -119,13 +119,19 @@ def configure_nvda():
     import scripts.configure_nvda as configure_nvda
 
     try:
-        result = configure_nvda.main([
-            'configure_nvda.py',
-            'nvda_installer.exe',
-            os.path.join(os.getcwd(), 'at-automation.nvda-addon'),
-            os.environ['NVDA_VERSION']
-        ])
+        # Install NVDA silently
+        configure_nvda.install_nvda('nvda_installer.exe')
         
+        # Configure NVDA using the alternative workflow (no GUI needed)
+        if not configure_nvda.alternative_configure_workflow():
+            raise Exception("Failed to configure NVDA")
+        
+        # Install the AT Automation addon
+        if not configure_nvda.install_addon('at-automation.nvda-addon'):
+            raise Exception("Failed to install addon")
+        
+        # Create portable copy
+        result = configure_nvda.create_portable_copy(os.environ['NVDA_VERSION'])
         if not result['success']:
             raise Exception(result['error'])
         
@@ -144,11 +150,9 @@ def test_nvda():
     import scripts.test_nvda_portable as test_nvda_portable
 
     try:
-        result = test_nvda_portable.test_nvda_portable(os.environ['PORTABLE_PATH'])
-        
-        if not result['success']:
-            raise Exception(result['error'])
-        
+        success = test_nvda_portable.test_nvda_portable(os.environ['PORTABLE_PATH'])
+        if not success:
+            raise Exception("NVDA portable test failed")
         print("NVDA portable test passed!")
     except Exception as e:
         print(f"Error testing NVDA portable: {str(e)}", file=sys.stderr)
@@ -169,6 +173,8 @@ def package_nvda():
         
         with open(os.environ['GITHUB_ENV'], 'a') as f:
             f.write(f"ZIP_PATH={zip_path}\n")
+        
+        print(f"NVDA portable packaged successfully: {zip_path}")
     except Exception as e:
         print(f"Error packaging NVDA portable: {str(e)}", file=sys.stderr)
         sys.exit(1)
