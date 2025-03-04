@@ -88,7 +88,7 @@ def create_plugin_addon():
         # Create a temporary directory for the addon
         os.makedirs('../temp_addon', exist_ok=True)
         
-        # Copy all files to the temporary directory
+        # Copy all files to the temporary directory, including the original manifest.ini
         for root, dirs, files in os.walk('.'):
             for file in files:
                 src_path = os.path.join(root, file)

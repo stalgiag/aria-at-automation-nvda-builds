@@ -260,7 +260,7 @@ def create_portable_copy(version):
         version (str): NVDA version for naming the portable copy.
         
     Returns:
-        str: Path to the portable copy.
+        dict: Result dictionary with success status and portable path
     """
     logging.info(f"Creating portable copy for version {version}")
     
@@ -273,7 +273,7 @@ def create_portable_copy(version):
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
         # Create a bat file to run NVDA with portable parameter
-        bat_content = f'"{nvda_path}" --portable="{portable_path}"'
+        bat_content = f'"{nvda_path}" --portable="{portable_path}" --minimal'
         bat_path = os.path.join(tempfile.gettempdir(), 'create_portable.bat')
         
         with open(bat_path, 'w') as f:
@@ -291,32 +291,15 @@ def create_portable_copy(version):
         # Verify portable copy was created
         if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
             logging.info(f"Portable copy created at: {portable_path}")
-            return portable_path
+            return {"success": True, "portable_path": portable_path}
         else:
-            # Alternative approach: copy installed NVDA to portable directory
-            logging.warning("Portable copy not created via NVDA command. Using manual copy approach.")
-            
-            nvda_installed_dir = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA')
-            
-            # Copy all files from installed NVDA to portable directory
-            for item in os.listdir(nvda_installed_dir):
-                s = os.path.join(nvda_installed_dir, item)
-                d = os.path.join(portable_path, item)
-                
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(s, d)
-            
-            # Create portable flag file
-            with open(os.path.join(portable_path, 'portable.ini'), 'w') as f:
-                f.write('[portable]\n')
-            
-            logging.info(f"Manual portable copy created at: {portable_path}")
-            return portable_path
+            error_msg = "Failed to create portable copy"
+            logging.error(error_msg)
+            return {"success": False, "error": error_msg}
     except Exception as e:
-        logging.error(f"Error creating portable copy: {str(e)}")
-        raise
+        error_msg = str(e)
+        logging.error(f"Error creating portable copy: {error_msg}")
+        return {"success": False, "error": error_msg}
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
@@ -347,10 +330,9 @@ if __name__ == "__main__":
         install_addon(addon_path)
         
         # Create portable copy without using GUI
-        portable_path = create_portable_copy(version)
+        result = create_portable_copy(version)
         
         # Output the result for GitHub Actions - ONLY output JSON here
-        result = {"success": True, "portable_path": portable_path}
         print(json.dumps(result))
         logging.info(f"Configuration successful: {result}")
     except Exception as e:
