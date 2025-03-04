@@ -349,8 +349,8 @@ try {
         
         foreach ($logPath in $potentialLogPaths) {
             if (Test-Path $logPath) {
-                Write-Log "Found NVDA log at: $logPath"
-                Write-Log "Contents of $logPath:"
+                Write-Log "Found NVDA log at: ${logPath}"
+                Write-Log "Contents of ${logPath}:"
                 Get-Content $logPath | ForEach-Object { Write-Log "NVDA LOG: $_" }
             }
         }
@@ -364,8 +364,8 @@ try {
         
         foreach ($configFile in $configFiles) {
             if (Test-Path $configFile) {
-                Write-Log "Found config file: $configFile"
-                Write-Log "Contents of $configFile:"
+                Write-Log "Found config file: ${configFile}"
+                Write-Log "Contents of ${configFile}:"
                 Get-Content $configFile | ForEach-Object { Write-Log "CONFIG: $_" }
             } else {
                 Write-Log "Config file not found: $configFile"
