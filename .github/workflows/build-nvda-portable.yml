@@ -56,8 +56,13 @@ jobs:
       - name: Get NVDA download URL
         id: nvda_info
         run: |
+          import os
           import sys
-          import json
+
+          # Add the workspace root to Python path
+          workspace_dir = os.getcwd()
+          sys.path.insert(0, workspace_dir)
+
           import scripts.get_latest_nvda as get_latest_nvda
 
           version = "${{ github.event.inputs.nvda_version }}"
@@ -85,6 +90,7 @@ jobs:
 
       - name: Download NVDA installer
         run: |
+          import os
           import sys
           import requests
 
@@ -109,7 +115,13 @@ jobs:
       - name: Get NVDA AT Automation Plugin
         id: clone_plugin
         run: |
+          import os
           import sys
+
+          # Add the workspace root to Python path
+          workspace_dir = os.getcwd()
+          sys.path.insert(0, workspace_dir)
+
           import scripts.clone_nvda_plugin as clone_nvda_plugin
 
           try:
@@ -169,8 +181,13 @@ jobs:
       - name: Configure NVDA and Create Portable Copy
         id: configure_nvda
         run: |
+          import os
           import sys
-          import json
+
+          # Add the workspace root to Python path
+          workspace_dir = os.getcwd()
+          sys.path.insert(0, workspace_dir)
+
           import scripts.configure_nvda as configure_nvda
 
           try:
@@ -197,8 +214,13 @@ jobs:
       - name: Test NVDA portable
         id: test_nvda
         run: |
+          import os
           import sys
-          import json
+
+          # Add the workspace root to Python path
+          workspace_dir = os.getcwd()
+          sys.path.insert(0, workspace_dir)
+
           import scripts.test_nvda_portable as test_nvda_portable
 
           try:
