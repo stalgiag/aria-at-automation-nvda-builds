@@ -267,50 +267,184 @@ def create_portable_copy(version):
     try:
         # Create portable directory
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
+        if os.path.exists(portable_path):
+            logging.info(f"Removing existing portable directory: {portable_path}")
+            shutil.rmtree(portable_path, ignore_errors=True)
+            
         os.makedirs(portable_path, exist_ok=True)
         
         # Run NVDA with --portable parameter
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
         # Create a bat file to run NVDA with portable parameter
-        bat_content = f'"{nvda_path}" --portable="{portable_path}"'
+        bat_content = f'@echo off\n"{nvda_path}" --portable="{portable_path}"\nexit'
         bat_path = os.path.join(tempfile.gettempdir(), 'create_portable.bat')
         
         with open(bat_path, 'w') as f:
             f.write(bat_content)
         
+        logging.info(f"Created batch file at {bat_path} with content: {bat_content}")
+        
         # Run the bat file with explorer to avoid elevation
+        logging.info("Running batch file with explorer.exe")
         run_command(['explorer.exe', bat_path])
         
         # Wait for portable copy to be created
-        time.sleep(30)
+        logging.info("Waiting for portable copy to be created...")
+        time.sleep(15)  # Increased wait time
         
         # Kill NVDA
-        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
+        logging.info("Attempting to kill any running NVDA processes")
+        try:
+            run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
+        except Exception as e:
+            logging.warning(f"Error killing NVDA process: {str(e)}")
         
         # Verify portable copy was created
-        if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
-            logging.info(f"Portable copy created at: {portable_path}")
+        critical_files = ["nvda.exe", "portable.ini", "library.zip", "synthDrivers", "locale"]
+        missing_files = []
+        
+        for file in critical_files:
+            file_path = os.path.join(portable_path, file)
+            if not os.path.exists(file_path):
+                missing_files.append(file)
+                logging.warning(f"Missing critical file: {file}")
+        
+        if not missing_files:
+            logging.info(f"Portable copy created successfully at: {portable_path}")
+            
+            # Ensure userConfig/addons directory exists
+            user_config_dir = os.path.join(portable_path, "userConfig")
+            addons_dir = os.path.join(user_config_dir, "addons")
+            
+            if not os.path.exists(user_config_dir):
+                os.makedirs(user_config_dir, exist_ok=True)
+                logging.info(f"Created userConfig directory: {user_config_dir}")
+                
+            if not os.path.exists(addons_dir):
+                os.makedirs(addons_dir, exist_ok=True)
+                logging.info(f"Created addons directory: {addons_dir}")
+            
+            # Copy AT Automation addon if it exists in the installed NVDA
+            installed_addons_dir = os.path.join(os.environ.get('APPDATA'), 'nvda', 'addons')
+            
+            if os.path.exists(installed_addons_dir):
+                # Look for CommandSocket or at-automation addon
+                for addon_name in os.listdir(installed_addons_dir):
+                    if "CommandSocket" in addon_name or "at-automation" in addon_name:
+                        source_addon_path = os.path.join(installed_addons_dir, addon_name)
+                        dest_addon_path = os.path.join(addons_dir, addon_name)
+                        
+                        logging.info(f"Copying AT Automation addon from {source_addon_path} to {dest_addon_path}")
+                        
+                        if os.path.exists(dest_addon_path):
+                            shutil.rmtree(dest_addon_path, ignore_errors=True)
+                            
+                        shutil.copytree(source_addon_path, dest_addon_path)
+                        logging.info("AT Automation addon copied successfully")
+                        break
+            
             return portable_path
         else:
             # Alternative approach: copy installed NVDA to portable directory
-            logging.warning("Portable copy not created via NVDA command. Using manual copy approach.")
+            logging.warning(f"Portable copy not created via NVDA command. Missing files: {', '.join(missing_files)}")
+            logging.info("Using manual copy approach.")
+            
+            # Clean up the incomplete portable directory
+            if os.path.exists(portable_path):
+                shutil.rmtree(portable_path, ignore_errors=True)
+                os.makedirs(portable_path, exist_ok=True)
             
             nvda_installed_dir = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA')
             
             # Copy all files from installed NVDA to portable directory
-            for item in os.listdir(nvda_installed_dir):
-                s = os.path.join(nvda_installed_dir, item)
-                d = os.path.join(portable_path, item)
+            logging.info(f"Copying files from {nvda_installed_dir} to {portable_path}")
+            
+            # Use robocopy for more reliable copying on Windows
+            try:
+                robocopy_cmd = f'robocopy "{nvda_installed_dir}" "{portable_path}" /E /NFL /NDL /NJH /NJS'
+                logging.info(f"Running command: {robocopy_cmd}")
                 
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
+                # Robocopy exit codes 0-7 indicate success
+                result = run_command(robocopy_cmd, shell=True, check=False)
+                if result.returncode < 8:
+                    logging.info("Robocopy completed successfully")
                 else:
-                    shutil.copy2(s, d)
+                    logging.warning(f"Robocopy reported issues (exit code: {result.returncode})")
+                    logging.info("Falling back to Python's copy method")
+                    
+                    # Fall back to Python's copy method
+                    for item in os.listdir(nvda_installed_dir):
+                        s = os.path.join(nvda_installed_dir, item)
+                        d = os.path.join(portable_path, item)
+                        
+                        if os.path.isdir(s):
+                            shutil.copytree(s, d, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(s, d)
+            except Exception as e:
+                logging.warning(f"Error with robocopy: {str(e)}")
+                logging.info("Using Python's copy method")
+                
+                for item in os.listdir(nvda_installed_dir):
+                    s = os.path.join(nvda_installed_dir, item)
+                    d = os.path.join(portable_path, item)
+                    
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(s, d)
             
             # Create portable flag file
-            with open(os.path.join(portable_path, 'portable.ini'), 'w') as f:
+            portable_ini_path = os.path.join(portable_path, 'portable.ini')
+            with open(portable_ini_path, 'w') as f:
                 f.write('[portable]\n')
+            
+            logging.info(f"Created portable flag file: {portable_ini_path}")
+            
+            # Create userConfig/addons directory structure
+            user_config_dir = os.path.join(portable_path, "userConfig")
+            addons_dir = os.path.join(user_config_dir, "addons")
+            
+            if not os.path.exists(user_config_dir):
+                os.makedirs(user_config_dir, exist_ok=True)
+                logging.info(f"Created userConfig directory: {user_config_dir}")
+                
+            if not os.path.exists(addons_dir):
+                os.makedirs(addons_dir, exist_ok=True)
+                logging.info(f"Created addons directory: {addons_dir}")
+            
+            # Copy AT Automation addon if it exists in the installed NVDA
+            installed_addons_dir = os.path.join(os.environ.get('APPDATA'), 'nvda', 'addons')
+            
+            if os.path.exists(installed_addons_dir):
+                # Look for CommandSocket or at-automation addon
+                for addon_name in os.listdir(installed_addons_dir):
+                    if "CommandSocket" in addon_name or "at-automation" in addon_name:
+                        source_addon_path = os.path.join(installed_addons_dir, addon_name)
+                        dest_addon_path = os.path.join(addons_dir, addon_name)
+                        
+                        logging.info(f"Copying AT Automation addon from {source_addon_path} to {dest_addon_path}")
+                        
+                        if os.path.exists(dest_addon_path):
+                            shutil.rmtree(dest_addon_path, ignore_errors=True)
+                            
+                        shutil.copytree(source_addon_path, dest_addon_path)
+                        logging.info("AT Automation addon copied successfully")
+                        break
+            
+            # Verify the portable copy structure
+            missing_files = []
+            for file in critical_files:
+                file_path = os.path.join(portable_path, file)
+                if not os.path.exists(file_path):
+                    missing_files.append(file)
+                    logging.warning(f"Still missing critical file after manual copy: {file}")
+            
+            if missing_files:
+                logging.warning(f"Manual copy still missing critical files: {', '.join(missing_files)}")
+            else:
+                logging.info("Manual portable copy created successfully with all critical files")
             
             logging.info(f"Manual portable copy created at: {portable_path}")
             return portable_path

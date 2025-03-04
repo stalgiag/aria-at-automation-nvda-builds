@@ -87,6 +87,69 @@ function Run-Script {
     }
 }
 
+function Verify-PortableStructure {
+    param(
+        [string]$PortablePath
+    )
+    
+    Write-Log "Verifying portable NVDA structure at: $PortablePath"
+    
+    # Check if the path exists
+    if (-not (Test-Path $PortablePath)) {
+        Write-Log "ERROR: Portable path does not exist: $PortablePath"
+        return $false
+    }
+    
+    # List of critical files/directories that must be present
+    $criticalItems = @(
+        "nvda.exe",
+        "portable.ini",
+        "library.zip",
+        "synthDrivers",
+        "locale",
+        "userConfig"
+    )
+    
+    $missingItems = @()
+    
+    foreach ($item in $criticalItems) {
+        $itemPath = Join-Path $PortablePath $item
+        if (-not (Test-Path $itemPath)) {
+            Write-Log "Missing critical item: $item"
+            $missingItems += $item
+        } else {
+            Write-Log "Found critical item: $item"
+        }
+    }
+    
+    # Check for AT Automation addon
+    $addonsDir = Join-Path $PortablePath "userConfig\addons"
+    if (Test-Path $addonsDir) {
+        $atAutomationFound = $false
+        Get-ChildItem -Path $addonsDir -Directory | ForEach-Object {
+            if ($_.Name -match "CommandSocket" -or $_.Name -match "at-automation") {
+                Write-Log "Found AT Automation addon: $($_.Name)"
+                $atAutomationFound = $true
+            }
+        }
+        
+        if (-not $atAutomationFound) {
+            Write-Log "WARNING: AT Automation addon not found in userConfig/addons"
+        }
+    } else {
+        Write-Log "WARNING: addons directory not found at: $addonsDir"
+    }
+    
+    # Return verification result
+    if ($missingItems.Count -eq 0) {
+        Write-Log "Portable structure verification passed"
+        return $true
+    } else {
+        Write-Log "Portable structure verification failed. Missing items: $($missingItems -join ', ')"
+        return $false
+    }
+}
+
 try {
     # Step 1: Install NVDA
     Write-Log "Step 1: Installing NVDA"
@@ -136,11 +199,46 @@ try {
     # Verify the portable path actually exists
     if (Test-Path $portablePath) {
         Write-Log "Verified portable path exists: $portablePath"
+        
+        # Perform additional verification of the portable structure
+        $structureValid = Verify-PortableStructure -PortablePath $portablePath
+        
+        if (-not $structureValid) {
+            Write-Log "WARNING: Portable structure verification failed. Attempting to fix..."
+            
+            # Try to run the test script to get more detailed information
+            $testParams = @{
+                PortablePath = $portablePath
+            }
+            $testResult = Run-Script -ScriptPath "$PSScriptRoot\test_nvda_wrapper.ps1" -Parameters $testParams
+            
+            Write-Log "Test script result: $($testResult | ConvertTo-Json -Compress)"
+            
+            # If the test failed, try to recreate the portable copy
+            if (-not $testResult.success) {
+                Write-Log "Test failed. Attempting to recreate portable copy..."
+                
+                # Try one more time with the create_portable_nvda.ps1 script
+                $portableResult = Run-Script -ScriptPath "$PSScriptRoot\create_portable_nvda.ps1" -Parameters $portableParams
+                
+                if ($portableResult.success) {
+                    Write-Log "Second attempt at creating portable copy succeeded"
+                    $structureValid = Verify-PortableStructure -PortablePath $portablePath
+                } else {
+                    Write-Log "Second attempt at creating portable copy failed"
+                }
+            }
+        }
+        
+        if ($structureValid) {
+            Write-Log "Portable copy created successfully with valid structure at: $portablePath"
+        } else {
+            Write-Log "WARNING: Portable copy structure verification failed, but continuing anyway"
+        }
     } else {
         Write-Log "WARNING: Portable path reported successful but directory not found: $portablePath"
+        throw "Portable directory not found at expected location: $portablePath"
     }
-    
-    Write-Log "Portable copy created successfully at: $portablePath"
     
     # Return success result
     @{

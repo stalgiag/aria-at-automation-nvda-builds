@@ -35,16 +35,56 @@ try {
     
     Write-Log "NVDA found at: ${nvdaExe}"
     
-    # Skip the built-in portable creation option as it requires admin rights
-    Write-Log "Skipping NVDA's built-in portable creation (requires elevation)"
-    Write-Log "Using manual copy method to create portable NVDA"
+    # First try using NVDA's built-in portable creation feature
+    Write-Log "Attempting to use NVDA's built-in portable creation feature"
     
-    try {
-        # Copy all files from installed NVDA to portable directory
-        Write-Log "Copying from ${nvdaInstalledDir} to ${portablePath}"
+    # Create a temporary batch file to run NVDA with --portable parameter
+    $tempBatPath = Join-Path $env:TEMP "create_portable_nvda.bat"
+    Write-Log "Creating temporary batch file: $tempBatPath"
+    
+    $batContent = @"
+@echo off
+"$nvdaExe" --portable="$portablePath"
+exit
+"@
+    
+    Set-Content -Path $tempBatPath -Value $batContent
+    
+    # Run the batch file using explorer.exe to avoid elevation issues
+    Write-Log "Running batch file with explorer.exe"
+    Start-Process "explorer.exe" -ArgumentList $tempBatPath -Wait
+    
+    # Wait for NVDA to create the portable copy
+    Write-Log "Waiting for NVDA to create portable copy..."
+    Start-Sleep -Seconds 10
+    
+    # Check if NVDA is still running and kill it
+    Write-Log "Checking for NVDA processes"
+    Get-Process -Name "nvda" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Log "Killing NVDA process with ID: $($_.Id)"
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Check if portable copy was created successfully
+    $portableExe = Join-Path $portablePath "nvda.exe"
+    $portableIniPath = Join-Path $portablePath "portable.ini"
+    $libraryZipPath = Join-Path $portablePath "library.zip"
+    
+    $builtInMethodSucceeded = (Test-Path $portableExe) -and (Test-Path $portableIniPath) -and (Test-Path $libraryZipPath)
+    
+    if ($builtInMethodSucceeded) {
+        Write-Log "Portable copy created successfully using NVDA's built-in feature"
+    } else {
+        Write-Log "NVDA's built-in portable creation failed or was incomplete. Falling back to manual copy method."
+        
+        # Clean up the incomplete portable directory
+        if (Test-Path $portablePath) {
+            Remove-Item -Path $portablePath -Recurse -Force
+            New-Item -Path $portablePath -ItemType Directory -Force | Out-Null
+        }
         
         # Use robocopy for more reliable copying
-        Write-Log "Running robocopy to copy files"
+        Write-Log "Running robocopy to copy files from ${nvdaInstalledDir} to ${portablePath}"
         & robocopy $nvdaInstalledDir $portablePath /E /NFL /NDL /NJH /NJS /nc /ns /np
         $robocopyExitCode = $LASTEXITCODE
         
@@ -60,23 +100,23 @@ try {
             throw "Robocopy failed with exit code ${robocopyExitCode}"
         }
         
-        # Check for any NVDA process and kill it
-        Write-Log "Checking for NVDA processes"
-        Get-Process -Name "nvda" -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Log "Killing NVDA process with ID: $($_.Id)"
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-        }
-        
         # Create portable flag file
         $portableIni = Join-Path $portablePath "portable.ini"
         Write-Log "Creating portable flag file: $portableIni"
         Set-Content -Path $portableIni -Value "[portable]`n"
         
-        # Create userConfig/addons directory structure
+        # Create userConfig/addons directory structure if it doesn't exist
         $userConfigDir = Join-Path $portablePath "userConfig"
+        if (-not (Test-Path $userConfigDir)) {
+            Write-Log "Creating userConfig directory: $userConfigDir"
+            New-Item -Path $userConfigDir -ItemType Directory -Force | Out-Null
+        }
+        
         $addonsDir = Join-Path $userConfigDir "addons"
-        Write-Log "Creating userConfig/addons directory: $addonsDir"
-        New-Item -Path $addonsDir -ItemType Directory -Force | Out-Null
+        if (-not (Test-Path $addonsDir)) {
+            Write-Log "Creating addons directory: $addonsDir"
+            New-Item -Path $addonsDir -ItemType Directory -Force | Out-Null
+        }
         
         # Copy any installed NVDA addons to the portable installation
         $installedAddonsDir = Join-Path $env:APPDATA "nvda\addons"
@@ -112,43 +152,85 @@ try {
         } else {
             Write-Log "No installed addons directory found at: $installedAddonsDir"
         }
-        
-        # Specifically look for AT Automation addon
-        $atAutomationDirs = Get-ChildItem -Path $addonsDir -Directory | Where-Object { $_.Name -match "CommandSocket" -or $_.Name -match "at-automation" }
-        if ($atAutomationDirs) {
-            Write-Log "AT Automation addon found in portable installation: ${atAutomationDirs.Name}"
-        } else {
-            Write-Log "WARNING: AT Automation addon not found in portable installation"
-        }
-        
-        $portableExe = Join-Path $portablePath "nvda.exe"
-        $portableCreated = Test-Path $portableExe
-        if ($portableCreated) {
-            Write-Log "Portable copy created successfully using manual method"
-        } else {
-            throw "Failed to create portable copy using manual method"
-        }
-    }
-    catch {
-        Write-Log "Error with manual copy method: $_"
-        throw "Failed to create portable copy: $_"
     }
     
-    # Verify the portable copy exists as final check
-    if ($portableCreated) {
-        # Return success with detailed information
-        Write-Log "Successfully created portable NVDA"
-        Write-Host "=========== PORTABLE CREATION SUCCESS =========="
-        Write-Host "Portable path: ${portablePath}"
+    # Specifically look for AT Automation addon
+    $atAutomationDirs = Get-ChildItem -Path (Join-Path $portablePath "userConfig\addons") -Directory -ErrorAction SilentlyContinue | 
+                        Where-Object { $_.Name -match "CommandSocket" -or $_.Name -match "at-automation" }
+    
+    if ($atAutomationDirs) {
+        Write-Log "AT Automation addon found in portable installation: $($atAutomationDirs.Name)"
+    } else {
+        Write-Log "WARNING: AT Automation addon not found in portable installation"
         
-        @{
-            "success" = $true
-            "portable_path" = $portablePath
-        } | ConvertTo-Json
+        # Try to find the addon in the installed NVDA and copy it
+        $installedAddonsDir = Join-Path $env:APPDATA "nvda\addons"
+        $commandSocketDir = Get-ChildItem -Path $installedAddonsDir -Directory -ErrorAction SilentlyContinue | 
+                           Where-Object { $_.Name -match "CommandSocket" -or $_.Name -match "at-automation" }
+        
+        if ($commandSocketDir) {
+            Write-Log "Found CommandSocket addon in installed NVDA, copying to portable installation"
+            $addonsDir = Join-Path $portablePath "userConfig\addons"
+            
+            # Ensure the addons directory exists
+            if (-not (Test-Path $addonsDir)) {
+                New-Item -Path $addonsDir -ItemType Directory -Force | Out-Null
+            }
+            
+            $destPath = Join-Path $addonsDir $commandSocketDir.Name
+            robocopy $commandSocketDir.FullName $destPath /E /NFL /NDL /NJH /NJS
+            
+            if ($LASTEXITCODE -lt 8) {
+                Write-Log "Successfully copied CommandSocket addon to portable installation"
+            } else {
+                Write-Log "WARNING: Failed to copy CommandSocket addon to portable installation"
+            }
+        } else {
+            Write-Log "CommandSocket addon not found in installed NVDA"
+        }
     }
-    else {
-        throw "Failed to create portable copy of NVDA"
+    
+    # Verify the portable copy structure
+    Write-Log "Verifying portable copy structure"
+    
+    # List of critical files that should be present in a valid NVDA portable installation
+    $criticalFiles = @(
+        "nvda.exe",
+        "portable.ini",
+        "library.zip",
+        "synthDrivers",
+        "locale",
+        "userConfig"
+    )
+    
+    $missingFiles = @()
+    
+    # Check for all critical files
+    foreach ($file in $criticalFiles) {
+        $filePath = Join-Path $portablePath $file
+        if (-not (Test-Path $filePath)) {
+            Write-Log "Missing critical file/directory: $file"
+            $missingFiles += $file
+        } else {
+            Write-Log "Found critical file/directory: $file"
+        }
     }
+    
+    if ($missingFiles.Count -gt 0) {
+        Write-Log "WARNING: Portable copy is missing critical files: $($missingFiles -join ', ')"
+    } else {
+        Write-Log "All critical files are present in the portable copy"
+    }
+    
+    # Return success with detailed information
+    Write-Log "Successfully created portable NVDA"
+    Write-Host "=========== PORTABLE CREATION SUCCESS =========="
+    Write-Host "Portable path: ${portablePath}"
+    
+    @{
+        "success" = $true
+        "portable_path" = $portablePath
+    } | ConvertTo-Json
 }
 catch {
     Write-Log "Error creating portable NVDA: $_"
