@@ -23,9 +23,13 @@ def get_nvda_info(version=None):
 
     try:
         if not version:
-            nvda_info = get_latest_nvda.get_latest_nvda()
-        else:
-            nvda_info = get_latest_nvda.get_latest_nvda(version)
+            version = get_latest_nvda.get_latest_nvda_version()
+        download_url = get_latest_nvda.get_nvda_download_url(version)
+        
+        nvda_info = {
+            'version': version,
+            'url': download_url
+        }
         
         print(f"NVDA_VERSION={nvda_info['version']}")
         print(f"NVDA_DOWNLOAD_URL={nvda_info['url']}")
