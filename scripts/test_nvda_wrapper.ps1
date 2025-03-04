@@ -310,25 +310,6 @@ try {
     } else {
         Write-Log "NVDA process not found running. Check logs for errors."
         
-        # Check if we're in a CI environment
-        $isCI = $env:CI -eq "true" -or $env:GITHUB_ACTIONS -eq "true"
-        if ($isCI) {
-            Write-Log "Running in CI environment. This might affect NVDA's ability to start."
-            
-            # Check NVDA version from the portable path
-            $versionMatch = [regex]::Match($PortablePath, "nvda_(\d+\.\d+\.\d+)_portable")
-            if ($versionMatch.Success) {
-                $nvdaVersion = $versionMatch.Groups[1].Value
-                Write-Log "Detected NVDA version: $nvdaVersion"
-                
-                # Check if this version is known to have issues in CI
-                $knownProblematicVersions = @("2023.1", "2023.2", "2023.3")
-                if ($knownProblematicVersions -contains $nvdaVersion) {
-                    Write-Log "WARNING: NVDA version $nvdaVersion is known to have issues in CI environments"
-                }
-            }
-        }
-        
         # Check if NVDA created a log file
         if (Test-Path $nvdaLogPath) {
             Write-Log "NVDA log file found at $nvdaLogPath"
@@ -418,26 +399,13 @@ try {
             "message" = "NVDA portable verification passed (structural check and execution test)"
         } | ConvertTo-Json
     } elseif ($structureCheckPassed) {
-        # Check if we're in a CI environment
-        $isCI = $env:CI -eq "true" -or $env:GITHUB_ACTIONS -eq "true"
-        
-        if ($isCI) {
-            Write-Host "============= TEST SUCCEEDED (CI ENVIRONMENT) ============="
-            Write-Log "Structural check passed - execution test skipped in CI environment"
-            @{
-                "success" = $true
-                "message" = "NVDA portable structure verification passed. Execution test skipped in CI environment."
-                "note" = "NVDA often cannot start in CI environments due to security restrictions, but the portable structure is valid."
-            } | ConvertTo-Json
-        } else {
-            Write-Host "============= TEST PARTIALLY SUCCEEDED ============="
-            Write-Log "Structural check passed but execution test failed"
-            @{
-                "success" = $true  # Still mark as success since structure is valid
-                "message" = "NVDA portable structure verification passed, but execution test failed"
-                "warning" = "Execution test failed, but structure looks valid"
-            } | ConvertTo-Json
-        }
+        Write-Host "============= TEST PARTIALLY SUCCEEDED ============="
+        Write-Log "Structural check passed but execution test failed"
+        @{
+            "success" = $false
+            "message" = "NVDA portable structure verification passed, but execution test failed"
+            "warning" = "The NVDA portable copy has correct structure but failed to execute properly"
+        } | ConvertTo-Json
     } else {
         Write-Host "============= TEST FAILED ============="
         Write-Log "Structural verification failed - portable copy is missing critical components"
