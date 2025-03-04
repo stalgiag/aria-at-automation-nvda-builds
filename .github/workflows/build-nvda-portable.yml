@@ -56,242 +56,186 @@ jobs:
       - name: Get NVDA download URL
         id: nvda_info
         run: |
-          $version = "${{ github.event.inputs.nvda_version }}"
+          import sys
+          import json
+          import scripts.get_latest_nvda as get_latest_nvda
 
-          if ([string]::IsNullOrEmpty($version)) {
-            # Get the latest version
-            $nvda_info = python scripts/get_latest_nvda.py | ConvertFrom-Json
-          } else {
-            # Use the specified version
-            $nvda_info = python scripts/get_latest_nvda.py "$version" | ConvertFrom-Json
-          }
+          version = "${{ github.event.inputs.nvda_version }}"
 
-          echo "NVDA_VERSION=$($nvda_info.version)" >> $env:GITHUB_ENV
-          echo "NVDA_DOWNLOAD_URL=$($nvda_info.url)" >> $env:GITHUB_ENV
-          echo "NVDA version: $($nvda_info.version)"
-          echo "NVDA download URL: $($nvda_info.url)"
-        shell: pwsh
+          try:
+              if not version:
+                  # Get the latest version
+                  nvda_info = get_latest_nvda.get_latest_nvda()
+              else:
+                  # Use the specified version
+                  nvda_info = get_latest_nvda.get_latest_nvda(version)
+              
+              print(f"NVDA_VERSION={nvda_info['version']}")
+              print(f"NVDA_DOWNLOAD_URL={nvda_info['url']}")
+              print(f"NVDA version: {nvda_info['version']}")
+              print(f"NVDA download URL: {nvda_info['url']}")
+              
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"NVDA_VERSION={nvda_info['version']}\n")
+                  f.write(f"NVDA_DOWNLOAD_URL={nvda_info['url']}\n")
+          except Exception as e:
+              print(f"Error getting NVDA info: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
       - name: Download NVDA installer
         run: |
-          try {
-            Write-Host "Downloading from: $env:NVDA_DOWNLOAD_URL"
-            Invoke-WebRequest -Uri $env:NVDA_DOWNLOAD_URL -OutFile nvda_installer.exe -ErrorAction Stop
-            
-            # Verify the file was downloaded and has content
-            if (-not (Test-Path nvda_installer.exe) -or (Get-Item nvda_installer.exe).Length -eq 0) {
-              throw "Downloaded file is empty or does not exist"
-            }
-            
-            Write-Host "NVDA installer downloaded successfully: $((Get-Item nvda_installer.exe).Length) bytes"
-          } catch {
-            Write-Error "Failed to download NVDA installer from $env:NVDA_DOWNLOAD_URL. Error: $_"
-            exit 1
-          }
-        shell: pwsh
+          import sys
+          import requests
+
+          try:
+              print(f"Downloading from: {os.environ['NVDA_DOWNLOAD_URL']}")
+              response = requests.get(os.environ['NVDA_DOWNLOAD_URL'])
+              response.raise_for_status()
+              
+              with open('nvda_installer.exe', 'wb') as f:
+                  f.write(response.content)
+              
+              # Verify the file was downloaded and has content
+              if not os.path.exists('nvda_installer.exe') or os.path.getsize('nvda_installer.exe') == 0:
+                  raise Exception("Downloaded file is empty or does not exist")
+              
+              print(f"NVDA installer downloaded successfully: {os.path.getsize('nvda_installer.exe')} bytes")
+          except Exception as e:
+              print(f"Failed to download NVDA installer: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
       - name: Get NVDA AT Automation Plugin
         id: clone_plugin
         run: |
-          try {
-            # Run the script and capture the output
-            $output = python scripts/clone_nvda_plugin.py
-            
-            # Try to parse the output as JSON
-            try {
-              $result = $output | ConvertFrom-Json
-            } catch {
-              Write-Warning "Failed to parse script output as JSON. Raw output:"
-              Write-Warning $output
-              throw "Failed to parse script output as JSON: $_"
-            }
-            
-            if (-not $result.success) {
-              throw "Failed to get NVDA plugin: $($result.error)"
-            }
-            
-            echo "Plugin downloaded successfully to: $($result.plugin_dir)"
-            echo "PLUGIN_DIR=$($result.plugin_dir)" >> $env:GITHUB_ENV
-          } catch {
-            Write-Error "Error in Get NVDA AT Automation Plugin step: $_"
-            exit 1
-          }
-        shell: pwsh
+          import sys
+          import scripts.clone_nvda_plugin as clone_nvda_plugin
+
+          try:
+              result = clone_nvda_plugin.clone_plugin()
+              
+              if not result['success']:
+                  raise Exception(result['error'])
+              
+              print(f"Plugin downloaded successfully to: {result['plugin_dir']}")
+              
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"PLUGIN_DIR={result['plugin_dir']}\n")
+          except Exception as e:
+              print(f"Error getting NVDA plugin: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
       - name: Create AT Automation Plugin addon
         run: |
-          # Navigate to the NVDAPlugin directory
-          cd NVDAPlugin
+          import os
+          import sys
+          import shutil
+          import zipfile
 
-          # Create a temporary directory for the addon
-          mkdir -p ../temp_addon
+          try:
+              # Navigate to the NVDAPlugin directory
+              os.chdir('NVDAPlugin')
+              
+              # Create a temporary directory for the addon
+              os.makedirs('../temp_addon', exist_ok=True)
+              
+              # Copy all files to the temporary directory
+              for root, dirs, files in os.walk('.'):
+                  for file in files:
+                      src_path = os.path.join(root, file)
+                      rel_path = os.path.relpath(src_path, '.')
+                      dst_path = os.path.join('../temp_addon', rel_path)
+                      os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                      shutil.copy2(src_path, dst_path)
+              
+              # Create the addon zip file
+              os.chdir('../temp_addon')
+              with zipfile.ZipFile('../at-automation.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
+                  for root, dirs, files in os.walk('.'):
+                      for file in files:
+                          zipf.write(os.path.join(root, file))
+              
+              os.chdir('..')
+              
+              # Rename to .nvda-addon
+              os.rename('at-automation.zip', 'at-automation.nvda-addon')
+          except Exception as e:
+              print(f"Error creating addon: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
-          # Copy all files to the temporary directory
-          Get-ChildItem -Recurse | Where-Object { !$_.PSIsContainer } | ForEach-Object {
-            $targetPath = $_.FullName.Replace($PWD.Path, "../temp_addon")
-            $targetDir = Split-Path -Parent $targetPath
-            if (!(Test-Path $targetDir)) {
-              New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-            }
-            Copy-Item $_.FullName -Destination $targetPath
-          }
-
-          # Create the addon zip file
-          cd ../temp_addon
-          Compress-Archive -Path * -DestinationPath ../at-automation.zip
-          cd ..
-
-          # Rename to .nvda-addon
-          Move-Item -Path at-automation.zip -Destination at-automation.nvda-addon
-        shell: pwsh
-
-      - name: Install and configure NVDA
+      - name: Configure NVDA and Create Portable Copy
         id: configure_nvda
         run: |
-          try {
-            # Run the PowerShell wrapper script directly
-            Write-Host "Running configure_nvda_wrapper.ps1 with arguments: 'nvda_installer.exe' '$PWD\at-automation.nvda-addon' '$env:NVDA_VERSION'"
-            
-            # Execute the script directly
-            $output = & "scripts\configure_nvda_wrapper.ps1" -InstallerPath "nvda_installer.exe" -AddonPath "$PWD\at-automation.nvda-addon" -Version "$env:NVDA_VERSION"
-            
-            Write-Host "Output from configure_nvda_wrapper.ps1:"
-            Write-Host $output
-            
-            # Parse the JSON output
-            try {
-              $result = $output | ConvertFrom-Json
-            } catch {
-              Write-Warning "Failed to parse script output as JSON:"
-              Write-Warning $output
+          import sys
+          import json
+          import scripts.configure_nvda as configure_nvda
+
+          try:
+              result = configure_nvda.main([
+                  'configure_nvda.py',
+                  'nvda_installer.exe',
+                  os.path.join(os.getcwd(), 'at-automation.nvda-addon'),
+                  os.environ['NVDA_VERSION']
+              ])
               
-              # Check if there's a success marker before failing
-              if ($output -match "PORTABLE CREATION SUCCESS") {
-                Write-Host "Success marker detected in output despite JSON parsing failure"
-                # Create a fallback result
-                $result = @{
-                  success = $true
-                  portable_path = "$PWD\nvda_$env:NVDA_VERSION"+"_portable"
-                }
-              } else {
-                throw "Failed to parse script output as JSON: $_"
-              }
-            }
-            
-            if (-not $result.success) {
-              throw "Failed to configure NVDA: $($result.error)"
-            }
-            
-            Write-Host "NVDA configured successfully"
-            Write-Host "Portable path: $($result.portable_path)"
-            echo "PORTABLE_PATH=$($result.portable_path)" >> $env:GITHUB_ENV
-            
-            # Force successful exit code - this is crucial to overcome any non-zero 
-            # but still successful exit codes from robocopy (exit codes 0-7 mean success)
-            exit 0
-          } catch {
-            Write-Error "Error in Install and configure NVDA step: $_"
-            
-            # Check if log files exist and display their contents
-            $logFiles = @("configure_nvda_wrapper.log", "install_nvda.log", "install_addon.log", "create_portable_nvda.log")
-            foreach ($logFile in $logFiles) {
-              if (Test-Path $logFile) {
-                Write-Host "Contents of $($logFile):"
-                Get-Content $logFile
-              }
-            }
-            
-            exit 1
-          }
-        shell: pwsh
+              if not result['success']:
+                  raise Exception(result['error'])
+              
+              print(f"NVDA configured successfully")
+              print(f"Portable path: {result['portable_path']}")
+              
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"PORTABLE_PATH={result['portable_path']}\n")
+          except Exception as e:
+              print(f"Error configuring NVDA: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
       - name: Test NVDA portable
         id: test_nvda
         run: |
-          try {
-            # Run the PowerShell wrapper script directly
-            Write-Host "Running test_nvda_wrapper.ps1 with arguments: '$env:PORTABLE_PATH'"
-            
-            # Execute the script directly
-            $output = & "scripts\test_nvda_wrapper.ps1" -PortablePath "$env:PORTABLE_PATH"
-            
-            Write-Host "Output from test_nvda_wrapper.ps1:"
-            Write-Host $output
-            
-            # Check for success markers first
-            if ($output -match "============= TEST SUCCEEDED =============") {
-              Write-Host "Success marker detected in output"
-              $result = @{
-                success = $true
-                message = "Test succeeded based on success marker"
-              }
-            } elseif ($output -match "============= TEST PARTIALLY SUCCEEDED =============") {
-              Write-Host "Partial success marker detected in output"
-              Write-Warning "NVDA structural check passed but execution test failed."
-              $result = @{
-                success = $false
-                message = "Test partially succeeded - structural check passed but execution test failed"
-              }
-            } else {
-              # Parse the JSON output
-              try {
-                $result = $output | ConvertFrom-Json
-              } catch {
-                Write-Warning "Failed to parse script output as JSON:"
-                Write-Warning $output
-                
-                # Check for other success indicators in the output
-                if ($output -match "success.*true" -and -not ($output -match "Error|Failed|failed")) {
-                  Write-Host "Success indicators found in output despite JSON parse failure"
-                  $result = @{
-                    success = $true
-                    message = "Test succeeded based on success indicators"
-                  }
-                } else {
-                  throw "Failed to parse script output as JSON: $_"
-                }
-              }
-            }
-            
-            if (-not $result.success) {
-              throw "NVDA portable test failed: $($result.error)"
-            }
-            
-            Write-Host "NVDA portable test passed!"
-            # Force successful exit code
-            exit 0
-          } catch {
-            Write-Error "Error in Test NVDA portable step: $_"
-            
-            # Check if log file exists and display its contents
-            if (Test-Path "test_nvda_wrapper.log") {
-              $logFileName = "test_nvda_wrapper.log"
-              Write-Host "Contents of ${logFileName}:"
-              Get-Content "test_nvda_wrapper.log"
-            }
-            
-            # Process check to see if NVDA is still running
-            $nvdaProcess = Get-Process -Name "nvda" -ErrorAction SilentlyContinue
-            if ($nvdaProcess) {
-              Write-Warning "NVDA is still running with PID $($nvdaProcess.Id), attempting to terminate"
-              try {
-                Stop-Process -Name "nvda" -Force -ErrorAction Stop
-                Write-Host "Successfully terminated NVDA process"
-              } catch {
-                Write-Warning "Failed to terminate NVDA process: $_"
-              }
-            }
-            
-            exit 1
-          }
-        shell: pwsh
+          import sys
+          import json
+          import scripts.test_nvda_portable as test_nvda_portable
+
+          try:
+              result = test_nvda_portable.test_nvda_portable(os.environ['PORTABLE_PATH'])
+              
+              if not result['success']:
+                  raise Exception(result['error'])
+              
+              print("NVDA portable test passed!")
+          except Exception as e:
+              print(f"Error testing NVDA portable: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
       - name: Package NVDA portable
         run: |
-          $zipPath = "$env:NVDA_VERSION.zip"
-          Compress-Archive -Path "$env:PORTABLE_PATH\*" -DestinationPath $zipPath
-          echo "ZIP_PATH=$zipPath" >> $env:GITHUB_ENV
-        shell: pwsh
+          import os
+          import sys
+          import zipfile
+
+          try:
+              zip_path = f"{os.environ['NVDA_VERSION']}.zip"
+              portable_path = os.environ['PORTABLE_PATH']
+              
+              with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                  for root, dirs, files in os.walk(portable_path):
+                      for file in files:
+                          file_path = os.path.join(root, file)
+                          arcname = os.path.relpath(file_path, portable_path)
+                          zipf.write(file_path, arcname)
+              
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write(f"ZIP_PATH={zip_path}\n")
+          except Exception as e:
+              print(f"Error packaging NVDA portable: {str(e)}", file=sys.stderr)
+              sys.exit(1)
+        shell: python
 
       - name: Upload log files
         if: always()
