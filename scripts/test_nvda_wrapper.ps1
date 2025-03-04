@@ -154,22 +154,85 @@ try {
     
     # Start NVDA as a job
     Write-Log "Starting NVDA in the background"
-    $nvdaJob = Start-Job -ScriptBlock {
-        param($nvdaExePath)
+    try {
+        # Start NVDA directly instead of using Start-Process inside a job
+        Write-Log "Attempting to start NVDA directly: $nvdaExe"
+        $nvdaProcess = Start-Process -FilePath $nvdaExe -NoNewWindow -PassThru
+        $nvdaStartResult = "Started with PID: $($nvdaProcess.Id)"
+        Write-Log $nvdaStartResult
+    } catch {
+        $nvdaStartResult = "Error: $($_.Exception.Message)"
+        Write-Log "Failed to start NVDA with Start-Process: $nvdaStartResult"
+        
+        # Try alternative method using direct invocation
+        Write-Log "Attempting alternative method to start NVDA"
         try {
-            Start-Process -FilePath $nvdaExePath -NoNewWindow -PassThru
-            return "Started"
+            # Use the & operator to directly execute NVDA
+            $job = Start-Job -ScriptBlock { 
+                param($exePath)
+                & $exePath
+            } -ArgumentList $nvdaExe
+            
+            $nvdaStartResult = "Started using alternative method"
+            Write-Log $nvdaStartResult
         } catch {
-            return "Error: $($_.Exception.Message)"
+            $nvdaStartResult = "Error with alternative method: $($_.Exception.Message)"
+            Write-Log "Failed to start NVDA with alternative method: $nvdaStartResult"
+            
+            # Try third method - direct execution with & operator
+            Write-Log "Attempting third method to start NVDA (direct execution)"
+            try {
+                # Start in a separate job to avoid blocking
+                $job = Start-Job -ScriptBlock {
+                    param($exePath)
+                    cd (Split-Path -Parent $exePath)
+                    & $exePath
+                } -ArgumentList $nvdaExe
+                
+                $nvdaStartResult = "Started using direct execution method"
+                Write-Log $nvdaStartResult
+            } catch {
+                $nvdaStartResult = "Error with direct execution method: $($_.Exception.Message)"
+                Write-Log "Failed to start NVDA with direct execution: $nvdaStartResult"
+                
+                # Try fourth method - exact match to working example
+                Write-Log "Attempting fourth method to start NVDA (background execution)"
+                try {
+                    # Change to the directory containing NVDA
+                    $nvdaDir = Split-Path -Parent $nvdaExe
+                    Push-Location $nvdaDir
+                    
+                    # Start NVDA in the background
+                    Start-Process -FilePath "powershell.exe" -ArgumentList "-Command", "& '$nvdaExe'" -NoNewWindow
+                    
+                    Pop-Location
+                    $nvdaStartResult = "Started using background execution method"
+                    Write-Log $nvdaStartResult
+                } catch {
+                    $nvdaStartResult = "Error with background execution method: $($_.Exception.Message)"
+                    Write-Log "Failed to start NVDA with background execution: $nvdaStartResult"
+                    Pop-Location
+                    
+                    # Try fifth method - direct invocation like in the working example
+                    Write-Log "Attempting fifth method to start NVDA (direct invocation)"
+                    try {
+                        # This is exactly how it's done in the working example
+                        Write-Log "Running: & '$nvdaExe'"
+                        & $nvdaExe
+                        
+                        $nvdaStartResult = "Started using direct invocation method"
+                        Write-Log $nvdaStartResult
+                    } catch {
+                        $nvdaStartResult = "Error with direct invocation method: $($_.Exception.Message)"
+                        Write-Log "Failed to start NVDA with direct invocation: $nvdaStartResult"
+                    }
+                }
+            }
         }
-    } -ArgumentList $nvdaExe
+    }
     
     # Wait a moment for NVDA to initialize
     Start-Sleep -Seconds 5
-    
-    # Check the job result
-    $nvdaStartResult = Receive-Job -Job $nvdaJob
-    Write-Log "NVDA start job result: $nvdaStartResult"
     
     # Check if NVDA is running
     $nvdaProcess = Get-Process -Name "nvda" -ErrorAction SilentlyContinue
@@ -199,6 +262,18 @@ try {
         }
     } else {
         Write-Log "NVDA process not found running. Check logs for errors."
+        
+        # Log more details about the environment
+        Write-Log "Current directory: $PWD"
+        Write-Log "NVDA executable path: $nvdaExe"
+        Write-Log "NVDA executable exists: $(Test-Path $nvdaExe)"
+        Write-Log "Current user: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+        Write-Log "Is admin: $([bool](([System.Security.Principal.WindowsIdentity]::GetCurrent()).groups -match 'S-1-5-32-544'))"
+        
+        # List running processes
+        Write-Log "Running processes:"
+        Get-Process | Select-Object -Property Name, Id | ForEach-Object { Write-Log "Process: $($_.Name), PID: $($_.Id)" }
+        
         $testSuccess = $false
     }
     

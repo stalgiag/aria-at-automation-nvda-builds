@@ -12,6 +12,7 @@ import logging
 import ctypes
 import tempfile
 import shutil
+from default_ini_content import get_default_ini_content
 
 # Set up logging to a file instead of stdout
 logging.basicConfig(
@@ -190,16 +191,7 @@ def alternative_configure_workflow():
         nvda_ini_path = os.path.join(nvda_config_dir, 'nvda.ini')
         
         # Create default configuration
-        ini_content = """[general]
-startMinimized=True
-playStartSound=True
-saveConfigurationOnExit=True
-askToExit=True
-autoCheckForUpdates=False
-[speech]
-synth=capturaspeech
-[braille]
-"""
+        ini_content = get_default_ini_content()
         
         # Write to file
         with open(nvda_ini_path, 'w') as f:
