@@ -227,10 +227,10 @@ jobs:
               }
             } elseif ($output -match "============= TEST PARTIALLY SUCCEEDED =============") {
               Write-Host "Partial success marker detected in output"
-              Write-Warning "NVDA structural check passed but execution test failed. This is acceptable in CI environment."
+              Write-Warning "NVDA structural check passed but execution test failed."
               $result = @{
-                success = $true
-                message = "Test partially succeeded - structural check passed"
+                success = $false
+                message = "Test partially succeeded - structural check passed but execution test failed"
               }
             } else {
               # Parse the JSON output
