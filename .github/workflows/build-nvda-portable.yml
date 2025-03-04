@@ -55,35 +55,42 @@ jobs:
 
       - name: Get NVDA download URL
         id: nvda_info
-        run: python scripts/workflow_tasks.py get_nvda_info "${{ github.event.inputs.nvda_version }}"
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py get_nvda_info "${{ github.event.inputs.nvda_version }}"
+        shell: pwsh
 
       - name: Download NVDA installer
-        run: python scripts/workflow_tasks.py download_nvda_installer
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py download_nvda_installer
+        shell: pwsh
 
       - name: Get NVDA AT Automation Plugin
         id: clone_plugin
-        run: python scripts/workflow_tasks.py get_nvda_plugin
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py get_nvda_plugin
+        shell: pwsh
 
       - name: Create AT Automation Plugin addon
-        run: python scripts/workflow_tasks.py create_plugin_addon
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py create_plugin_addon
+        shell: pwsh
 
       - name: Configure NVDA and Create Portable Copy
         id: configure_nvda
-        run: python scripts/workflow_tasks.py configure_nvda
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py configure_nvda
+        shell: pwsh
 
       - name: Test NVDA portable
         id: test_nvda
-        run: python scripts/workflow_tasks.py test_nvda
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py test_nvda
+        shell: pwsh
 
       - name: Package NVDA portable
-        run: python scripts/workflow_tasks.py package_nvda
-        shell: python
+        run: |
+          & python scripts/workflow_tasks.py package_nvda
+        shell: pwsh
 
       - name: Upload log files
         if: always()
