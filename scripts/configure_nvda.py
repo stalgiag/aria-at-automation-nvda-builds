@@ -143,36 +143,54 @@ def create_portable_copy(version, nvda_path):
         run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
         time.sleep(2)
         
-        # Create portable copy using NVDA's built-in mechanism with elevation
-        # Use PowerShell to run as admin and capture output
-        ps_command = f'''
-        $ErrorActionPreference = "Stop"
-        $nvdaPath = "{nvda_path}"
-        $portablePath = "{portable_path}"
+        # Create an elevated PowerShell script that will create the portable copy
+        ps_script = f'''
+# Self-elevate the script if required
+if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {{
+    $commandLine = "-File `"$($MyInvocation.MyCommand.Path)`""
+    Start-Process -FilePath PowerShell.exe -Verb RunAs -ArgumentList $commandLine
+    exit
+}}
+
+$ErrorActionPreference = "Stop"
+$nvdaPath = "{nvda_path}"
+$portablePath = "{portable_path}"
+
+Write-Host "Starting portable copy creation..."
+try {{
+    # Run NVDA with portable arguments
+    $process = Start-Process -FilePath $nvdaPath -ArgumentList "--portable=$portablePath","--minimal" -NoNewWindow -PassThru -Wait
+    Write-Host "Process completed with exit code: $($process.ExitCode)"
+    
+    if (Test-Path "$portablePath\\nvda.exe") {{
+        Write-Host "Portable copy created successfully"
+        exit 0
+    }} else {{
+        Write-Error "Portable copy not found after process completion"
+        exit 1
+    }}
+}} catch {{
+    Write-Error "Error during portable copy creation: $_"
+    exit 1
+}}
+'''
         
-        Write-Host "Starting portable copy creation..."
-        try {{
-            $process = Start-Process -FilePath $nvdaPath -ArgumentList "--portable=$portablePath","--minimal" -NoNewWindow -PassThru -Wait -RedirectStandardOutput "nvda_output.txt" -RedirectStandardError "nvda_error.txt"
-            Write-Host "Process exit code: $($process.ExitCode)"
+        # Write the PowerShell script to a file
+        script_path = "create_portable.ps1"
+        with open(script_path, "w") as f:
+            f.write(ps_script)
             
-            if (Test-Path "$portablePath\\nvda.exe") {{
-                Write-Host "Portable copy created successfully"
-                exit 0
-            }} else {{
-                Write-Error "Portable copy not found after process completion"
-                exit 1
-            }}
-        }} catch {{
-            Write-Error "Error during portable copy creation: $_"
-            exit 1
-        }}
-        '''
-        
-        cmd = ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_command]
+        # Execute the PowerShell script
+        cmd = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script_path]
         logging.info(f"Creating portable copy with command: {cmd}")
         
-        # Run the command
         result = run_command(cmd, shell=False)
+        
+        # Clean up the script file
+        try:
+            os.remove(script_path)
+        except:
+            pass
         
         # Check if the portable copy was created
         if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
@@ -186,15 +204,10 @@ def create_portable_copy(version, nvda_path):
                 
             return {"success": True, "portable_path": portable_path}
         
-        # If we get here, check for error output
+        # If we get here, something went wrong
         error_msg = "Portable copy was not created successfully"
-        if os.path.exists("nvda_error.txt"):
-            with open("nvda_error.txt", "r") as f:
-                error_content = f.read().strip()
-                if error_content:
-                    error_msg += f". Error output: {error_content}"
-        
         raise Exception(error_msg)
+        
     except Exception as e:
         error_msg = f"Failed to create portable copy: {str(e)}"
         logging.error(error_msg)
