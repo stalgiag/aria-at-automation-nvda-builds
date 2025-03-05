@@ -47,43 +47,31 @@ def install_nvda(installer_path):
     
     Args:
         installer_path (str): Path to the NVDA installer.
+        
+    Returns:
+        str: Path to the installed nvda.exe
     """
     logging.info(f"Installing NVDA from {installer_path}")
     
     try:
-        # Run installer silently and capture output
-        cmd = [installer_path, "--install", "--silent", "--debug-logging"]
-        result = run_command(cmd)
+        # Run installer silently
+        cmd = [installer_path, "--install", "--silent"]
+        run_command(cmd)
+        logging.info("NVDA installed successfully")
         
-        # Log the full installation details
-        logging.info("Installation output:")
-        logging.info(result.stdout)
-        logging.info("Installation error output:")
-        logging.info(result.stderr)
-        
-        # List contents of Program Files to see where NVDA might be
-        program_files = [
-            os.environ.get('ProgramFiles', 'C:\\Program Files'),
-            os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)')
-        ]
-        
-        for pf in program_files:
-            logging.info(f"Checking contents of {pf}:")
-            if os.path.exists(pf):
-                contents = os.listdir(pf)
-                logging.info(f"Contents: {contents}")
+        # NVDA installs to Program Files (x86) by default
+        nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
+        if not os.path.isfile(nvda_path):
+            raise FileNotFoundError(f"NVDA executable not found at expected path: {nvda_path}")
+            
+        logging.info(f"NVDA installed at: {nvda_path}")
         
         # Give NVDA time to start and then kill it
         time.sleep(5)
         run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
         
-        # Try to find where NVDA was actually installed
-        logging.info("Searching for nvda.exe in common locations...")
-        for root, dirs, files in os.walk('C:\\'):
-            if 'nvda.exe' in files:
-                path = os.path.join(root, 'nvda.exe')
-                logging.info(f"Found nvda.exe at: {path}")
-                
+        return nvda_path
+        
     except Exception as e:
         logging.error(f"Error installing NVDA: {str(e)}")
         raise
@@ -134,11 +122,12 @@ def find_nvda_exe():
     paths_checked = '\n'.join(f"- {p}" for p in possible_paths)
     raise FileNotFoundError(f"Could not find nvda.exe. Checked the following paths:\n{paths_checked}")
 
-def create_portable_copy(version):
+def create_portable_copy(version, nvda_path):
     """Create a portable copy of NVDA.
     
     Args:
         version (str): NVDA version for naming the portable copy.
+        nvda_path (str): Path to the installed NVDA executable.
         
     Returns:
         dict: Result dictionary with success status and portable path
@@ -146,17 +135,9 @@ def create_portable_copy(version):
     logging.info(f"Creating portable copy for version {version}")
     
     try:
-        
         # Create portable directory with version-specific name
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
-        
-        # Find NVDA executable
-        try:
-            nvda_path = find_nvda_exe()
-        except FileNotFoundError as e:
-            logging.error(str(e))
-            return {"success": False, "error": str(e)}
         
         # Create portable copy using NVDA's built-in mechanism
         cmd = [
@@ -205,14 +186,14 @@ def setup_nvda(installer_path, addon_path, version):
     try:
         logging.info(f"Starting NVDA setup with installer={installer_path}, addon={addon_path}, version={version}")
         
-        # Step 1: Install NVDA
-        install_nvda(installer_path)
+        # Step 1: Install NVDA and get its path
+        nvda_path = install_nvda(installer_path)
         
         # Step 2: Install addon
         install_addon(addon_path)
         
         # Step 3: Create portable copy
-        result = create_portable_copy(version)
+        result = create_portable_copy(version, nvda_path)
         
         logging.info(f"NVDA setup completed: {result}")
         return result
