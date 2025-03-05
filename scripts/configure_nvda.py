@@ -174,35 +174,6 @@ def start_nvda_without_elevation():
     logging.error("All methods to start NVDA without elevation failed")
     return False
 
-def alternative_configure_workflow():
-    """
-    An alternative approach to configure NVDA by modifying settings directly.
-    This avoids the need to use the GUI which requires elevation.
-    """
-    logging.info("Using alternative configuration approach")
-    
-    try:
-        # Create settings directory if it doesn't exist
-        appdata = os.environ.get('APPDATA')
-        nvda_config_dir = os.path.join(appdata, 'nvda')
-        os.makedirs(nvda_config_dir, exist_ok=True)
-        
-        # Create or modify nvda.ini
-        nvda_ini_path = os.path.join(nvda_config_dir, 'nvda.ini')
-        
-        # Create default configuration
-        ini_content = get_default_ini_content()
-        
-        # Write to file
-        with open(nvda_ini_path, 'w') as f:
-            f.write(ini_content)
-        
-        logging.info(f"Created NVDA configuration at {nvda_ini_path}")
-        return True
-    except Exception as e:
-        logging.error(f"Error in alternative configuration: {str(e)}")
-        return False
-
 def install_addon(addon_path):
     """
     Install the AT Automation addon.
@@ -248,14 +219,21 @@ def create_portable_copy(version):
         # Get path to NVDA executable
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
-        # Run NVDA with --portable parameter directly
-        result = run_command([nvda_path, '--portable=' + portable_path, '--minimal'])
+        # Run NVDA with administrative privileges directly
+        nvda_command = f'"{nvda_path}" --portable="{portable_path}" --minimal'
+        logging.info(f"Running command with admin rights: {nvda_command}")
         
-        # Wait a moment for the portable copy to be created
-        time.sleep(10)
+        # Note: In GitHub Actions, the runneradmin account should already have admin privileges
+        run_command([nvda_command], shell=True)
         
-        # Kill NVDA
-        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
+        # Give it some time to complete
+        time.sleep(15)
+        
+        # Kill any remaining NVDA processes
+        try:
+            run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
+        except:
+            pass
         
         # Verify portable copy was created
         if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
@@ -291,9 +269,6 @@ if __name__ == "__main__":
         # Step 1: Install NVDA (this works fine based on logs)
         install_nvda(installer_path)
         
-        # Step 2: Use alternative methods that don't require elevation
-        # Configure NVDA settings directly
-        alternative_configure_workflow()
         
         # Install addon without using GUI
         install_addon(addon_path)
