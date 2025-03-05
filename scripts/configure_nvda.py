@@ -245,21 +245,14 @@ def create_portable_copy(version):
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
-        # Run NVDA with --portable parameter to create portable copy
+        # Get path to NVDA executable
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
-        # Create a bat file to run NVDA with portable parameter
-        bat_content = f'"{nvda_path}" --portable="{portable_path}" --minimal'
-        bat_path = os.path.join(tempfile.gettempdir(), 'create_portable.bat')
+        # Run NVDA with --portable parameter directly
+        result = run_command([nvda_path, '--portable=' + portable_path, '--minimal'])
         
-        with open(bat_path, 'w') as f:
-            f.write(bat_content)
-        
-        # Run the bat file with explorer to avoid elevation
-        run_command(['explorer.exe', bat_path])
-        
-        # Wait for portable copy to be created
-        time.sleep(30)
+        # Wait a moment for the portable copy to be created
+        time.sleep(10)
         
         # Kill NVDA
         run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
