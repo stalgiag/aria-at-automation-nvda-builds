@@ -237,6 +237,14 @@ def create_portable_copy(version, nvda_path):
         create_task_cmd = f'schtasks /Create /SC ONCE /TN {task_name} /TR "\"{nvda_path}\" {nvda_arguments}" /RL HIGHEST /ST {start_time} /F'
         logging.info(f"Creating scheduled task with command: {create_task_cmd}")
         run_command(create_task_cmd, shell=True)
+        task_name = "NVDA_Portable_Task"
+        # Schedule the task to start one minute from now
+        start_time = (datetime.datetime.now() + datetime.timedelta(minutes=1)).strftime("%H:%M")
+        # Wrap the command with cmd /c so that the executable path with spaces is parsed correctly.
+        tr_command = f'cmd /c ""{nvda_path}" {nvda_arguments}"'
+        create_task_cmd = f'schtasks /Create /SC ONCE /TN {task_name} /TR "{tr_command}" /RL HIGHEST /ST {start_time} /F'
+        logging.info(f"Creating scheduled task with command: {create_task_cmd}")
+        run_command(create_task_cmd, shell=True)
 
         run_task_cmd = f'schtasks /Run /TN {task_name}'
         logging.info(f"Running scheduled task with command: {run_task_cmd}")
