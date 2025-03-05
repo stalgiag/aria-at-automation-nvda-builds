@@ -107,10 +107,15 @@ def create_portable_copy(version):
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
         # Create portable copy using NVDA's built-in mechanism
-        nvda_command = f'"{nvda_path}" --portable="{portable_path}" --minimal'
-        logging.info(f"Creating portable copy: {nvda_command}")
+        # Pass arguments separately to avoid shell quoting issues
+        cmd = [
+            nvda_path,
+            "--portable=" + portable_path,
+            "--minimal"
+        ]
+        logging.info(f"Creating portable copy with command: {cmd}")
         
-        run_command([nvda_command], shell=True)
+        run_command(cmd, shell=False)  # Explicitly set shell=False
         
         # Wait for portable copy creation and verify
         max_wait = 30  # Maximum wait time in seconds
