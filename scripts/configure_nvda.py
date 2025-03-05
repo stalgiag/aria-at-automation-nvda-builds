@@ -12,6 +12,7 @@ import logging
 import shutil
 import ctypes  # For elevation
 from default_ini_content import get_default_ini_content
+import datetime
 
 # Set up logging to a file instead of stdout
 logging.basicConfig(
@@ -229,12 +230,25 @@ def create_portable_copy(version, nvda_path):
         nvda_arguments = f'--portable="{portable_path}" --minimal'
         logging.info(f"Launching NVDA elevated with arguments: {nvda_arguments}")
         
-        # Launch the process elevated using ShellExecuteEx
-        exit_code = run_as_admin(nvda_path, nvda_arguments)
-        logging.info(f"NVDA portable process exited with code: {exit_code}")
-        
-        # Give the file system a moment to sync
-        time.sleep(5)
+        # Launch the process elevated using scheduled tasks instead of direct elevation
+        task_name = "NVDA_Portable_Task"
+        # Schedule the task to start one minute from now
+        start_time = (datetime.datetime.now() + datetime.timedelta(minutes=1)).strftime("%H:%M")
+        create_task_cmd = f'schtasks /Create /SC ONCE /TN {task_name} /TR "\"{nvda_path}\" {nvda_arguments}" /RL HIGHEST /ST {start_time} /F'
+        logging.info(f"Creating scheduled task with command: {create_task_cmd}")
+        run_command(create_task_cmd, shell=True)
+
+        run_task_cmd = f'schtasks /Run /TN {task_name}'
+        logging.info(f"Running scheduled task with command: {run_task_cmd}")
+        run_command(run_task_cmd, shell=True)
+
+        # Optionally, delete the scheduled task
+        delete_task_cmd = f'schtasks /Delete /TN {task_name} /F'
+        logging.info(f"Deleting scheduled task with command: {delete_task_cmd}")
+        run_command(delete_task_cmd, shell=True)
+
+        # Wait for the portable copy to be created
+        time.sleep(10)
 
         # Verify the portable copy was created
         if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
