@@ -9,8 +9,6 @@ import time
 import subprocess
 import json
 import logging
-import ctypes
-import tempfile
 import shutil
 from default_ini_content import get_default_ini_content
 
@@ -21,17 +19,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def is_admin():
-    """Check if the script is running with admin privileges."""
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
-
 def run_command(cmd, shell=False, check=True):
     """Run a command and log its output without affecting stdout."""
     try:
-        # Use subprocess with PIPE to avoid mixing output with our JSON
         result = subprocess.run(
             cmd, 
             shell=shell, 
@@ -53,8 +43,7 @@ def run_command(cmd, shell=False, check=True):
         raise
 
 def install_nvda(installer_path):
-    """
-    Install NVDA silently.
+    """Install NVDA silently.
     
     Args:
         installer_path (str): Path to the NVDA installer.
@@ -62,76 +51,20 @@ def install_nvda(installer_path):
     logging.info(f"Installing NVDA from {installer_path}")
     
     try:
-        # Run the installer directly - GitHub Actions runners should have sufficient privileges
+        # Run installer silently
         cmd = [installer_path, "--install", "--silent"]
         run_command(cmd)
-        
         logging.info("NVDA installed successfully")
         
-        # Wait for NVDA to start
-        logging.info("Waiting for NVDA to start")
-        time.sleep(10)
-        
-        # Kill NVDA process after installation
-        logging.info("Killing NVDA process")
-        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True)
-        time.sleep(2)
+        # Give NVDA time to start and then kill it
+        time.sleep(5)
+        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
     except Exception as e:
         logging.error(f"Error installing NVDA: {str(e)}")
         raise
 
-def create_shortcut_to_nvda():
-    """Create a shortcut to NVDA that doesn't require elevation."""
-    logging.info("Creating a shortcut to NVDA")
-    nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
-    shortcut_path = os.path.join(tempfile.gettempdir(), 'nvda_shortcut.lnk')
-    
-    # Create PowerShell script to create shortcut
-    ps_script = f"""
-    $WshShell = New-Object -comObject WScript.Shell
-    $Shortcut = $WshShell.CreateShortcut("{shortcut_path}")
-    $Shortcut.TargetPath = "{nvda_path}"
-    $Shortcut.Save()
-    """
-    
-    # Save script to temp file
-    ps_script_path = os.path.join(tempfile.gettempdir(), 'create_shortcut.ps1')
-    with open(ps_script_path, 'w') as f:
-        f.write(ps_script)
-    
-    # Run PowerShell script
-    run_command(['powershell', '-ExecutionPolicy', 'Bypass', '-File', ps_script_path])
-    
-    # Check if shortcut was created
-    if os.path.exists(shortcut_path):
-        logging.info(f"Shortcut created at {shortcut_path}")
-        return shortcut_path
-    else:
-        raise Exception("Failed to create NVDA shortcut")
-
-def start_nvda_without_elevation():
-    """Start NVDA without requiring elevation.
-    
-    Returns:
-        bool: True if NVDA was started successfully, False otherwise
-    """
-    logging.info("Starting NVDA without elevation")
-    
-    nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
-    
-    # Primary method: Use explorer.exe to start NVDA (bypasses UAC)
-    try:
-        run_command(['explorer.exe', nvda_path])
-        logging.info("Started NVDA using explorer.exe")
-        time.sleep(5)  # Reduced wait time since we're not trying multiple methods
-        return True
-    except Exception as e:
-        logging.error(f"Failed to start NVDA: {str(e)}")
-        return False
-
 def install_addon(addon_path):
-    """
-    Install the AT Automation addon.
+    """Install the AT Automation addon.
     
     Args:
         addon_path (str): Path to the addon file.
@@ -216,20 +149,16 @@ if __name__ == "__main__":
     try:
         logging.info(f"Starting configuration with installer={installer_path}, addon={addon_path}, version={version}")
         
-        # Check if we're running as admin
-        admin_status = "admin" if is_admin() else "non-admin"
-        logging.info(f"Running with {admin_status} privileges")
-        
-        # Step 1: Install NVDA (this works fine based on logs)
+        # Install NVDA
         install_nvda(installer_path)
         
-        # Install addon without using GUI
+        # Install addon
         install_addon(addon_path)
         
-        # Create portable copy without using GUI
+        # Create portable copy
         result = create_portable_copy(version)
         
-        # Output the result for GitHub Actions - ONLY output JSON here
+        # Output the result for GitHub Actions
         print(json.dumps(result))
         logging.info(f"Configuration successful: {result}")
     except Exception as e:
