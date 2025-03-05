@@ -85,47 +85,16 @@ def create_plugin_addon():
         # Navigate to the NVDAPlugin directory
         os.chdir('NVDAPlugin')
         
-        # Verify we're in the correct directory with the expected structure
-        if not all(os.path.exists(p) for p in [
-            'manifest.ini',
-            os.path.join('globalPlugins', 'CommandSocket'),
-            os.path.join('synthDrivers', 'captureSpeech')
-        ]):
-            raise Exception("Invalid plugin directory structure")
-        
-        # Create a temporary directory for the addon
-        os.makedirs('../temp_addon', exist_ok=True)
-        
-        # First copy the manifest.ini
-        shutil.copy2('manifest.ini', '../temp_addon/manifest.ini')
-        
-        # Then copy the plugin directories maintaining structure
-        for dir_name in ['globalPlugins', 'synthDrivers']:
-            if os.path.exists(dir_name):
-                shutil.copytree(
-                    dir_name,
-                    os.path.join('../temp_addon', dir_name),
-                    dirs_exist_ok=True
-                )
-        
-        # Create the addon zip file
-        os.chdir('../temp_addon')
-        with zipfile.ZipFile('../at-automation.zip', 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Add manifest.ini first
-            if os.path.exists('manifest.ini'):
-                zipf.write('manifest.ini')
-            
-            # Add other directories
+        # Create the addon zip file directly from the contents (not the directory itself)
+        with zipfile.ZipFile('../at-automation.nvda-addon', 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Add all files and directories from current directory
             for root, dirs, files in os.walk('.'):
                 for file in files:
-                    if file != 'manifest.ini':  # Skip manifest as we already added it
-                        file_path = os.path.join(root, file)
-                        zipf.write(file_path)
+                    file_path = os.path.join(root, file)
+                    # Remove the leading './' or '.\' from the archive name
+                    archive_path = os.path.relpath(file_path, '.')
+                    zipf.write(file_path, archive_path)
         
-        os.chdir('..')
-        
-        # Rename to .nvda-addon
-        os.rename('at-automation.zip', 'at-automation.nvda-addon')
         print("AT Automation addon created successfully")
     except Exception as e:
         print(f"Error creating addon: {str(e)}", file=sys.stderr)

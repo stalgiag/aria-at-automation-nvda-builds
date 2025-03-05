@@ -218,33 +218,9 @@ def install_addon(addon_path):
         nvda_addons_dir = os.path.join(appdata, 'nvda', 'addons')
         os.makedirs(nvda_addons_dir, exist_ok=True)
         
-        # Extract addon to a temporary directory
-        import zipfile
-        temp_dir = tempfile.mkdtemp()
-        
-        with zipfile.ZipFile(addon_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
-        
-        # Get the addon manifest to determine the addon name
-        manifest_path = os.path.join(temp_dir, 'manifest.ini')
-        addon_name = 'atautomation'  # Default name
-        
-        if os.path.exists(manifest_path):
-            import configparser
-            config = configparser.ConfigParser()
-            config.read(manifest_path)
-            if 'name' in config.get('addon', {}):
-                addon_name = config['addon']['name']
-        
-        # Copy to NVDA addons directory
-        addon_dest = os.path.join(nvda_addons_dir, addon_name)
-        
-        # Remove existing addon if it exists
-        if os.path.exists(addon_dest):
-            shutil.rmtree(addon_dest)
-        
-        # Copy the addon files
-        shutil.copytree(temp_dir, addon_dest)
+        # Copy the addon file to the addons directory
+        addon_dest = os.path.join(nvda_addons_dir, os.path.basename(addon_path))
+        shutil.copy2(addon_path, addon_dest)
         
         logging.info(f"Addon installed to {addon_dest}")
         return True
