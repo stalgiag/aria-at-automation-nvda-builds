@@ -254,7 +254,7 @@ def install_addon(addon_path):
 
 def create_portable_copy(version):
     """
-    Create a portable copy of NVDA using command-line approach.
+    Create a portable copy of NVDA using NVDA's built-in portable copy mechanism.
     
     Args:
         version (str): NVDA version for naming the portable copy.
@@ -269,7 +269,7 @@ def create_portable_copy(version):
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
-        # Run NVDA with --portable parameter
+        # Run NVDA with --portable parameter to create portable copy
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
         # Create a bat file to run NVDA with portable parameter
@@ -293,7 +293,7 @@ def create_portable_copy(version):
             logging.info(f"Portable copy created at: {portable_path}")
             return {"success": True, "portable_path": portable_path}
         else:
-            error_msg = "Failed to create portable copy"
+            error_msg = "Failed to create portable copy using NVDA's built-in mechanism"
             logging.error(error_msg)
             return {"success": False, "error": error_msg}
     except Exception as e:

@@ -61,6 +61,25 @@ def clone_nvda_plugin():
                 logging.error(error_msg)
                 return {"success": False, "error": error_msg}
             
+            # Verify the expected structure
+            required_files = [
+                os.path.join(source_plugin_dir, "manifest.ini"),
+                os.path.join(source_plugin_dir, "globalPlugins", "CommandSocket", "__init__.py"),
+                os.path.join(source_plugin_dir, "synthDrivers", "captureSpeech", "__init__.py")
+            ]
+            
+            for file_path in required_files:
+                if not os.path.exists(file_path):
+                    error_msg = f"Required file not found: {file_path}"
+                    logging.error(error_msg)
+                    return {"success": False, "error": error_msg}
+            
+            # Log the manifest content for debugging
+            manifest_path = os.path.join(source_plugin_dir, "manifest.ini")
+            with open(manifest_path, 'r') as f:
+                manifest_content = f.read()
+                logging.info(f"Manifest content:\n{manifest_content}")
+            
             # Copy the NVDAPlugin directory
             logging.info(f"Copying from {source_plugin_dir} to {nvda_plugin_dir}")
             shutil.copytree(source_plugin_dir, nvda_plugin_dir)
