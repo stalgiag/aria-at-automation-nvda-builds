@@ -87,6 +87,28 @@ def install_addon(addon_path):
         logging.error(f"Error installing addon: {str(e)}")
         raise
 
+def find_nvda_exe():
+    """Find the NVDA executable in common installation paths.
+    
+    Returns:
+        str: Path to nvda.exe if found, otherwise raises an exception
+    """
+    possible_paths = [
+        os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), 'NVDA', 'nvda.exe'),
+        os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe'),
+        os.path.join('C:\\Program Files', 'NVDA', 'nvda.exe'),
+        os.path.join('C:\\Program Files (x86)', 'NVDA', 'nvda.exe'),
+    ]
+    
+    for path in possible_paths:
+        if os.path.isfile(path):
+            logging.info(f"Found NVDA executable at: {path}")
+            return path
+            
+    # If we get here, we couldn't find NVDA
+    paths_checked = '\n'.join(f"- {p}" for p in possible_paths)
+    raise FileNotFoundError(f"Could not find nvda.exe. Checked the following paths:\n{paths_checked}")
+
 def create_portable_copy(version):
     """Create a portable copy of NVDA.
     
@@ -103,11 +125,14 @@ def create_portable_copy(version):
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
-        # Get path to NVDA executable
-        nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
+        # Find NVDA executable
+        try:
+            nvda_path = find_nvda_exe()
+        except FileNotFoundError as e:
+            logging.error(str(e))
+            return {"success": False, "error": str(e)}
         
         # Create portable copy using NVDA's built-in mechanism
-        # Pass arguments separately to avoid shell quoting issues
         cmd = [
             nvda_path,
             "--portable=" + portable_path,
@@ -115,11 +140,11 @@ def create_portable_copy(version):
         ]
         logging.info(f"Creating portable copy with command: {cmd}")
         
-        run_command(cmd, shell=False)  # Explicitly set shell=False
+        run_command(cmd, shell=False)
         
         # Wait for portable copy creation and verify
-        max_wait = 30  # Maximum wait time in seconds
-        wait_interval = 2  # Check every 2 seconds
+        max_wait = 30
+        wait_interval = 2
         
         for _ in range(0, max_wait, wait_interval):
             if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
