@@ -139,27 +139,42 @@ def create_portable_copy(version, nvda_path):
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
+        # Kill any existing NVDA processes first
+        run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
+        time.sleep(2)
+        
         # Create portable copy using NVDA's built-in mechanism with elevation
         # Use PowerShell to run as admin and capture output
         ps_command = f'''
-        $process = Start-Process -FilePath "{nvda_path}" -ArgumentList "--portable={portable_path}","--minimal" -Verb RunAs -PassThru
-        $process.WaitForExit(30000)  # Wait up to 30 seconds
-        if (-not $process.HasExited) {{
-            $process | Stop-Process -Force
-            Write-Error "Process timed out"
+        $ErrorActionPreference = "Stop"
+        $nvdaPath = "{nvda_path}"
+        $portablePath = "{portable_path}"
+        
+        Write-Host "Starting portable copy creation..."
+        try {{
+            $process = Start-Process -FilePath $nvdaPath -ArgumentList "--portable=$portablePath","--minimal" -NoNewWindow -PassThru -Wait -RedirectStandardOutput "nvda_output.txt" -RedirectStandardError "nvda_error.txt"
+            Write-Host "Process exit code: $($process.ExitCode)"
+            
+            if (Test-Path "$portablePath\\nvda.exe") {{
+                Write-Host "Portable copy created successfully"
+                exit 0
+            }} else {{
+                Write-Error "Portable copy not found after process completion"
+                exit 1
+            }}
+        }} catch {{
+            Write-Error "Error during portable copy creation: $_"
             exit 1
         }}
-        exit $process.ExitCode
         '''
         
-        cmd = ['powershell', '-Command', ps_command]
-        logging.info(f"Creating portable copy with elevated command: {cmd}")
+        cmd = ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps_command]
+        logging.info(f"Creating portable copy with command: {cmd}")
         
-        # Run the command and give it a chance to create the portable copy
-        run_command(cmd, shell=False)
-        time.sleep(5)  # Give file system a moment to catch up
+        # Run the command
+        result = run_command(cmd, shell=False)
         
-        # Verify the portable copy was created
+        # Check if the portable copy was created
         if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
             logging.info(f"Portable copy created successfully at: {portable_path}")
             
@@ -170,8 +185,16 @@ def create_portable_copy(version, nvda_path):
                 pass
                 
             return {"success": True, "portable_path": portable_path}
-            
-        raise Exception("Portable copy was not created successfully")
+        
+        # If we get here, check for error output
+        error_msg = "Portable copy was not created successfully"
+        if os.path.exists("nvda_error.txt"):
+            with open("nvda_error.txt", "r") as f:
+                error_content = f.read().strip()
+                if error_content:
+                    error_msg += f". Error output: {error_content}"
+        
+        raise Exception(error_msg)
     except Exception as e:
         error_msg = f"Failed to create portable copy: {str(e)}"
         logging.error(error_msg)
