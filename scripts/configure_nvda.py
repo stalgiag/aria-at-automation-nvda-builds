@@ -10,6 +10,7 @@ import subprocess
 import json
 import logging
 import shutil
+import ctypes  # For elevation
 from default_ini_content import get_default_ini_content
 
 # Set up logging to a file instead of stdout
@@ -18,6 +19,19 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+def is_admin():
+    """
+    Check if the script is running with administrator privileges.
+    
+    Returns:
+        bool: True if running as admin, False otherwise.
+    """
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except Exception as e:
+        logging.error(f"Admin check failed: {e}")
+        return False
 
 def run_command(cmd, shell=False, check=True):
     """Run a command and log its output without affecting stdout."""
@@ -41,6 +55,67 @@ def run_command(cmd, shell=False, check=True):
         logging.error(f"Output: {e.stdout}")
         logging.error(f"Error output: {e.stderr}")
         raise
+
+def run_as_admin(executable, parameters):
+    """
+    Run a command with elevated privileges using ShellExecuteEx.
+
+    Args:
+        executable (str): Full path to the executable.
+        parameters (str): Command-line arguments.
+
+    Returns:
+        int: The process's exit code once it finishes.
+
+    Raises:
+        Exception: If the elevated process cannot be started.
+    """
+    SW_SHOW = 5
+    SEE_MASK_NOCLOSEPROCESS = 0x00000040
+
+    class SHELLEXECUTEINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", ctypes.c_ulong),
+            ("fMask", ctypes.c_ulong),
+            ("hwnd", ctypes.c_void_p),
+            ("lpVerb", ctypes.c_wchar_p),
+            ("lpFile", ctypes.c_wchar_p),
+            ("lpParameters", ctypes.c_wchar_p),
+            ("lpDirectory", ctypes.c_wchar_p),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", ctypes.c_void_p),
+            ("lpIDList", ctypes.c_void_p),
+            ("lpClass", ctypes.c_wchar_p),
+            ("hkeyClass", ctypes.c_void_p),
+            ("dwHotKey", ctypes.c_ulong),
+            ("hIcon", ctypes.c_void_p),
+            ("hProcess", ctypes.c_void_p)
+        ]
+    
+    sei = SHELLEXECUTEINFO()
+    sei.cbSize = ctypes.sizeof(SHELLEXECUTEINFO)
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS
+    sei.hwnd = None
+    sei.lpVerb = "runas"  # Causes UAC elevation prompt if needed
+    sei.lpFile = executable
+    sei.lpParameters = parameters
+    sei.lpDirectory = None
+    sei.nShow = SW_SHOW
+    sei.hInstApp = None
+
+    if not ctypes.windll.shell32.ShellExecuteEx(ctypes.byref(sei)):
+        raise Exception("Failed to execute process with elevated privileges. (ShellExecuteEx failed)")
+    
+    # Wait for the process to finish - 30 seconds timeout (30000 milliseconds)
+    ret = ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, 30000)
+    if ret == 0x102:  # WAIT_TIMEOUT
+        ctypes.windll.kernel32.TerminateProcess(sei.hProcess, 1)
+        raise Exception("Elevated process timed out and was terminated")
+    
+    # Retrieve exit code
+    exit_code = ctypes.c_ulong()
+    ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
+    return exit_code.value
 
 def install_nvda(installer_path):
     """Install NVDA silently.
@@ -133,81 +208,47 @@ def create_portable_copy(version, nvda_path):
         dict: Result dictionary with success status and portable path
     """
     logging.info(f"Creating portable copy for version {version}")
+
+    # Ensure administrator privileges – run_as_admin will fail if not
+    if not is_admin():
+        error_msg = "Administrator privileges are required to create a portable copy. Please run this script as an administrator."
+        logging.error(error_msg)
+        raise Exception(error_msg)
     
     try:
         # Create portable directory with version-specific name
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
-        # Kill any existing NVDA processes first
+        # Kill any existing NVDA processes
         run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
         time.sleep(2)
         
-        # Create an elevated PowerShell script that will create the portable copy
-        ps_script = f'''
-# Self-elevate the script if required
-if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] 'Administrator')) {{
-    $commandLine = "-File `"$($MyInvocation.MyCommand.Path)`""
-    Start-Process -FilePath PowerShell.exe -Verb RunAs -ArgumentList $commandLine
-    exit
-}}
+        # Build the argument string for NVDA's portable mode.
+        # Note: NVDA expects the portable directory via the --portable option.
+        nvda_arguments = f'--portable="{portable_path}" --minimal'
+        logging.info(f"Launching NVDA elevated with arguments: {nvda_arguments}")
+        
+        # Launch the process elevated using ShellExecuteEx
+        exit_code = run_as_admin(nvda_path, nvda_arguments)
+        logging.info(f"NVDA portable process exited with code: {exit_code}")
+        
+        # Give the file system a moment to sync
+        time.sleep(5)
 
-$ErrorActionPreference = "Stop"
-$nvdaPath = "{nvda_path}"
-$portablePath = "{portable_path}"
-
-Write-Host "Starting portable copy creation..."
-try {{
-    # Run NVDA with portable arguments
-    $process = Start-Process -FilePath $nvdaPath -ArgumentList "--portable=$portablePath","--minimal" -NoNewWindow -PassThru -Wait
-    Write-Host "Process completed with exit code: $($process.ExitCode)"
-    
-    if (Test-Path "$portablePath\\nvda.exe") {{
-        Write-Host "Portable copy created successfully"
-        exit 0
-    }} else {{
-        Write-Error "Portable copy not found after process completion"
-        exit 1
-    }}
-}} catch {{
-    Write-Error "Error during portable copy creation: $_"
-    exit 1
-}}
-'''
-        
-        # Write the PowerShell script to a file
-        script_path = "create_portable.ps1"
-        with open(script_path, "w") as f:
-            f.write(ps_script)
-            
-        # Execute the PowerShell script
-        cmd = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script_path]
-        logging.info(f"Creating portable copy with command: {cmd}")
-        
-        result = run_command(cmd, shell=False)
-        
-        # Clean up the script file
-        try:
-            os.remove(script_path)
-        except:
-            pass
-        
-        # Check if the portable copy was created
+        # Verify the portable copy was created
         if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
             logging.info(f"Portable copy created successfully at: {portable_path}")
             
             # Clean up any running NVDA processes
             try:
                 run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
-            except:
+            except Exception:
                 pass
                 
             return {"success": True, "portable_path": portable_path}
         
-        # If we get here, something went wrong
-        error_msg = "Portable copy was not created successfully"
-        raise Exception(error_msg)
-        
+        raise Exception("Portable copy was not created successfully")
     except Exception as e:
         error_msg = f"Failed to create portable copy: {str(e)}"
         logging.error(error_msg)
