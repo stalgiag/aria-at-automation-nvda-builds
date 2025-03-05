@@ -140,31 +140,38 @@ def create_portable_copy(version, nvda_path):
         os.makedirs(portable_path, exist_ok=True)
         
         # Create portable copy using NVDA's built-in mechanism with elevation
-        # Use PowerShell to run as admin since we're in GitHub Actions
-        ps_command = f'Start-Process -FilePath "{nvda_path}" -ArgumentList "--portable={portable_path}","--minimal" -Verb RunAs -Wait'
+        # Use PowerShell to run as admin and capture output
+        ps_command = f'''
+        $process = Start-Process -FilePath "{nvda_path}" -ArgumentList "--portable={portable_path}","--minimal" -Verb RunAs -PassThru
+        $process.WaitForExit(30000)  # Wait up to 30 seconds
+        if (-not $process.HasExited) {{
+            $process | Stop-Process -Force
+            Write-Error "Process timed out"
+            exit 1
+        }}
+        exit $process.ExitCode
+        '''
+        
         cmd = ['powershell', '-Command', ps_command]
-        
         logging.info(f"Creating portable copy with elevated command: {cmd}")
+        
+        # Run the command and give it a chance to create the portable copy
         run_command(cmd, shell=False)
+        time.sleep(5)  # Give file system a moment to catch up
         
-        # Wait for portable copy creation and verify
-        max_wait = 30
-        wait_interval = 2
-        
-        for _ in range(0, max_wait, wait_interval):
-            if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
-                logging.info(f"Portable copy created successfully at: {portable_path}")
+        # Verify the portable copy was created
+        if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
+            logging.info(f"Portable copy created successfully at: {portable_path}")
+            
+            # Clean up any running NVDA processes
+            try:
+                run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
+            except:
+                pass
                 
-                # Clean up any running NVDA processes
-                try:
-                    run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
-                except:
-                    pass
-                    
-                return {"success": True, "portable_path": portable_path}
-            time.sleep(wait_interval)
-        
-        raise Exception("Timeout waiting for portable copy creation")
+            return {"success": True, "portable_path": portable_path}
+            
+        raise Exception("Portable copy was not created successfully")
     except Exception as e:
         error_msg = f"Failed to create portable copy: {str(e)}"
         logging.error(error_msg)
