@@ -146,14 +146,6 @@ def create_portable_copy(version):
     logging.info(f"Creating portable copy for version {version}")
     
     try:
-        # Install NVDA
-        install_nvda(installer_path)
-        
-        # Install addon
-        install_addon(addon_path)
-        
-        # Create portable copy
-        result = create_portable_copy(version)
         
         # Create portable directory with version-specific name
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
@@ -199,33 +191,48 @@ def create_portable_copy(version):
         logging.error(error_msg)
         return {"success": False, "error": error_msg}
 
+def setup_nvda(installer_path, addon_path, version):
+    """Complete NVDA setup process: install, add addon, and create portable copy.
+    
+    Args:
+        installer_path (str): Path to the NVDA installer
+        addon_path (str): Path to the AT Automation addon
+        version (str): NVDA version for naming the portable copy
+        
+    Returns:
+        dict: Result with success status and portable path
+    """
+    try:
+        logging.info(f"Starting NVDA setup with installer={installer_path}, addon={addon_path}, version={version}")
+        
+        # Step 1: Install NVDA
+        install_nvda(installer_path)
+        
+        # Step 2: Install addon
+        install_addon(addon_path)
+        
+        # Step 3: Create portable copy
+        result = create_portable_copy(version)
+        
+        logging.info(f"NVDA setup completed: {result}")
+        return result
+        
+    except Exception as e:
+        error_msg = str(e)
+        logging.error(f"NVDA setup failed: {error_msg}")
+        return {"success": False, "error": error_msg}
+
 if __name__ == "__main__":
+    # This is now just for direct script usage/testing
     if len(sys.argv) < 4:
         error_msg = "Missing arguments. Usage: configure_nvda.py <installer_path> <addon_path> <version>"
         logging.error(error_msg)
         print(json.dumps({"success": False, "error": error_msg}))
         sys.exit(1)
         
-    installer_path = sys.argv[1]
-    addon_path = sys.argv[2]
-    version = sys.argv[3]
-    
-    try:
-        logging.info(f"Starting configuration with installer={installer_path}, addon={addon_path}, version={version}")
-        
-        # Install NVDA
-        install_nvda(installer_path)
-        
-        # Install addon
-        install_addon(addon_path)
-        
-        # Create portable copy
-        result = create_portable_copy(version)
-        
-        # Output the result for GitHub Actions
-        print(json.dumps(result))
-        logging.info(f"Configuration successful: {result}")
-    except Exception as e:
-        error_msg = str(e)
-        logging.error(f"Configuration failed: {error_msg}")
-        print(json.dumps({"success": False, "error": error_msg})) 
+    result = setup_nvda(
+        installer_path=sys.argv[1],
+        addon_path=sys.argv[2],
+        version=sys.argv[3]
+    )
+    print(json.dumps(result)) 

@@ -143,23 +143,18 @@ def configure_nvda():
         addon_path = 'at-automation.nvda-addon'  # This was created earlier
         version = os.environ['NVDA_VERSION']
         
-        # Run the configuration script directly with all required arguments
-        cmd = [
-            sys.executable,  # Use the current Python interpreter
-            os.path.join('scripts', 'configure_nvda.py'),
-            installer_path,
-            addon_path,
-            version
-        ]
+        # Run the full configuration process
+        result = configure_nvda.setup_nvda(
+            installer_path=installer_path,
+            addon_path=addon_path,
+            version=version
+        )
         
-        # Run the configuration and capture its JSON output
-        result = run_command(cmd)
-        
-        # Parse the JSON output from the script
-        try:
-            return json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return {"success": False, "error": f"Failed to parse configuration output: {result.stdout}"}
+        if result['success'] and 'portable_path' in result:
+            with open(os.environ['GITHUB_ENV'], 'a') as f:
+                f.write(f"PORTABLE_PATH={result['portable_path']}\n")
+                
+        return result
             
     except Exception as e:
         error_msg = f"Failed to configure NVDA: {str(e)}"
