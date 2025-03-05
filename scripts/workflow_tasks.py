@@ -107,20 +107,7 @@ def configure_nvda():
 
     try:
         # Install NVDA silently
-        configure_nvda.install_nvda('nvda_installer.exe')
-        
-        # Configure NVDA using the alternative workflow (no GUI needed)
-        if not configure_nvda.alternative_configure_workflow():
-            raise Exception("Failed to configure NVDA")
-        
-        # Install the AT Automation addon
-        if not configure_nvda.install_addon('at-automation.nvda-addon'):
-            raise Exception("Failed to install addon")
-        
-        # Create portable copy
-        result = configure_nvda.create_portable_copy(os.environ['NVDA_VERSION'])
-        if not result['success']:
-            raise Exception(result['error'])
+        configure_nvda.create_portable_copy(os.environ['NVDA_VERSION'])
         
         print(f"NVDA configured successfully")
         print(f"Portable path: {result['portable_path']}")

@@ -269,7 +269,6 @@ if __name__ == "__main__":
         # Step 1: Install NVDA (this works fine based on logs)
         install_nvda(installer_path)
         
-        
         # Install addon without using GUI
         install_addon(addon_path)
         
