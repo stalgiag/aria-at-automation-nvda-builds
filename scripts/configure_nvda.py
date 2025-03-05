@@ -146,6 +146,15 @@ def create_portable_copy(version):
     logging.info(f"Creating portable copy for version {version}")
     
     try:
+        # Install NVDA
+        install_nvda(installer_path)
+        
+        # Install addon
+        install_addon(addon_path)
+        
+        # Create portable copy
+        result = create_portable_copy(version)
+        
         # Create portable directory with version-specific name
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
