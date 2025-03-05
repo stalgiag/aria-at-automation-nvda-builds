@@ -51,14 +51,39 @@ def install_nvda(installer_path):
     logging.info(f"Installing NVDA from {installer_path}")
     
     try:
-        # Run installer silently
-        cmd = [installer_path, "--install", "--silent"]
-        run_command(cmd)
-        logging.info("NVDA installed successfully")
+        # Run installer silently and capture output
+        cmd = [installer_path, "--install", "--silent", "--debug-logging"]
+        result = run_command(cmd)
+        
+        # Log the full installation details
+        logging.info("Installation output:")
+        logging.info(result.stdout)
+        logging.info("Installation error output:")
+        logging.info(result.stderr)
+        
+        # List contents of Program Files to see where NVDA might be
+        program_files = [
+            os.environ.get('ProgramFiles', 'C:\\Program Files'),
+            os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)')
+        ]
+        
+        for pf in program_files:
+            logging.info(f"Checking contents of {pf}:")
+            if os.path.exists(pf):
+                contents = os.listdir(pf)
+                logging.info(f"Contents: {contents}")
         
         # Give NVDA time to start and then kill it
         time.sleep(5)
         run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
+        
+        # Try to find where NVDA was actually installed
+        logging.info("Searching for nvda.exe in common locations...")
+        for root, dirs, files in os.walk('C:\\'):
+            if 'nvda.exe' in files:
+                path = os.path.join(root, 'nvda.exe')
+                logging.info(f"Found nvda.exe at: {path}")
+                
     except Exception as e:
         logging.error(f"Error installing NVDA: {str(e)}")
         raise
