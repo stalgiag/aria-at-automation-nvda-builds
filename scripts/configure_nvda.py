@@ -110,69 +110,24 @@ def create_shortcut_to_nvda():
         raise Exception("Failed to create NVDA shortcut")
 
 def start_nvda_without_elevation():
-    """Start NVDA without requiring elevation."""
+    """Start NVDA without requiring elevation.
+    
+    Returns:
+        bool: True if NVDA was started successfully, False otherwise
+    """
     logging.info("Starting NVDA without elevation")
     
-    # Method 1: Try using explorer.exe to start NVDA
     nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
     
+    # Primary method: Use explorer.exe to start NVDA (bypasses UAC)
     try:
-        # This approach uses explorer.exe to start NVDA which should bypass UAC
         run_command(['explorer.exe', nvda_path])
         logging.info("Started NVDA using explorer.exe")
-        time.sleep(10)
+        time.sleep(5)  # Reduced wait time since we're not trying multiple methods
         return True
     except Exception as e:
-        logging.warning(f"Failed to start NVDA using explorer.exe: {str(e)}")
-    
-    # Method 2: Try using a shortcut
-    try:
-        shortcut_path = create_shortcut_to_nvda()
-        run_command(['explorer.exe', shortcut_path])
-        logging.info("Started NVDA using shortcut")
-        time.sleep(10)
-        return True
-    except Exception as e:
-        logging.warning(f"Failed to start NVDA using shortcut: {str(e)}")
-    
-    # Method 3: Create a temporary copy of NVDA
-    try:
-        nvda_dir = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA')
-        temp_nvda_dir = os.path.join(tempfile.gettempdir(), 'nvda_temp')
-        
-        # Create temp directory if it doesn't exist
-        if not os.path.exists(temp_nvda_dir):
-            os.makedirs(temp_nvda_dir)
-            
-        # Copy NVDA.exe and necessary DLLs
-        shutil.copy2(os.path.join(nvda_dir, 'nvda.exe'), os.path.join(temp_nvda_dir, 'nvda.exe'))
-        
-        # Try to copy important DLLs
-        for dll in ['nvdaHelperRemote.dll', 'nvdaControllerClient.dll']:
-            dll_path = os.path.join(nvda_dir, dll)
-            if os.path.exists(dll_path):
-                shutil.copy2(dll_path, os.path.join(temp_nvda_dir, dll))
-        
-        # Run the copied NVDA
-        run_command([os.path.join(temp_nvda_dir, 'nvda.exe')])
-        logging.info("Started NVDA from temporary copy")
-        time.sleep(10)
-        return True
-    except Exception as e:
-        logging.warning(f"Failed to start NVDA from temporary copy: {str(e)}")
-    
-    # Method 4: Use runas with /savecred (only works if credentials were saved before)
-    try:
-        run_command(['runas', '/savecred', f'"{nvda_path}"'])
-        logging.info("Started NVDA using runas with /savecred")
-        time.sleep(10)
-        return True
-    except Exception as e:
-        logging.warning(f"Failed to start NVDA using runas: {str(e)}")
-    
-    # If all methods fail
-    logging.error("All methods to start NVDA without elevation failed")
-    return False
+        logging.error(f"Failed to start NVDA: {str(e)}")
+        return False
 
 def install_addon(addon_path):
     """
@@ -200,8 +155,7 @@ def install_addon(addon_path):
         raise
 
 def create_portable_copy(version):
-    """
-    Create a portable copy of NVDA using NVDA's built-in portable copy mechanism.
+    """Create a portable copy of NVDA.
     
     Args:
         version (str): NVDA version for naming the portable copy.
@@ -212,40 +166,40 @@ def create_portable_copy(version):
     logging.info(f"Creating portable copy for version {version}")
     
     try:
-        # Create portable directory
+        # Create portable directory with version-specific name
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
         # Get path to NVDA executable
         nvda_path = os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'NVDA', 'nvda.exe')
         
-        # Run NVDA with administrative privileges directly
+        # Create portable copy using NVDA's built-in mechanism
         nvda_command = f'"{nvda_path}" --portable="{portable_path}" --minimal'
-        logging.info(f"Running command with admin rights: {nvda_command}")
+        logging.info(f"Creating portable copy: {nvda_command}")
         
-        # Note: In GitHub Actions, the runneradmin account should already have admin privileges
         run_command([nvda_command], shell=True)
         
-        # Give it some time to complete
-        time.sleep(15)
+        # Wait for portable copy creation and verify
+        max_wait = 30  # Maximum wait time in seconds
+        wait_interval = 2  # Check every 2 seconds
         
-        # Kill any remaining NVDA processes
-        try:
-            run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
-        except:
-            pass
+        for _ in range(0, max_wait, wait_interval):
+            if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
+                logging.info(f"Portable copy created successfully at: {portable_path}")
+                
+                # Clean up any running NVDA processes
+                try:
+                    run_command(['taskkill', '/f', '/im', 'nvda.exe'], shell=True, check=False)
+                except:
+                    pass
+                    
+                return {"success": True, "portable_path": portable_path}
+            time.sleep(wait_interval)
         
-        # Verify portable copy was created
-        if os.path.exists(os.path.join(portable_path, 'nvda.exe')):
-            logging.info(f"Portable copy created at: {portable_path}")
-            return {"success": True, "portable_path": portable_path}
-        else:
-            error_msg = "Failed to create portable copy using NVDA's built-in mechanism"
-            logging.error(error_msg)
-            return {"success": False, "error": error_msg}
+        raise Exception("Timeout waiting for portable copy creation")
     except Exception as e:
-        error_msg = str(e)
-        logging.error(f"Error creating portable copy: {error_msg}")
+        error_msg = f"Failed to create portable copy: {str(e)}"
+        logging.error(error_msg)
         return {"success": False, "error": error_msg}
 
 if __name__ == "__main__":
