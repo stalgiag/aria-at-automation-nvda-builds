@@ -139,14 +139,12 @@ def create_portable_copy(version, nvda_path):
         portable_path = os.path.join(os.getcwd(), f"nvda_{version}_portable")
         os.makedirs(portable_path, exist_ok=True)
         
-        # Create portable copy using NVDA's built-in mechanism
-        cmd = [
-            nvda_path,
-            "--portable=" + portable_path,
-            "--minimal"
-        ]
-        logging.info(f"Creating portable copy with command: {cmd}")
+        # Create portable copy using NVDA's built-in mechanism with elevation
+        # Use PowerShell to run as admin since we're in GitHub Actions
+        ps_command = f'Start-Process -FilePath "{nvda_path}" -ArgumentList "--portable={portable_path}","--minimal" -Verb RunAs -Wait'
+        cmd = ['powershell', '-Command', ps_command]
         
+        logging.info(f"Creating portable copy with elevated command: {cmd}")
         run_command(cmd, shell=False)
         
         # Wait for portable copy creation and verify
